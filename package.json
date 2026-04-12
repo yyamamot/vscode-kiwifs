@@ -1,0 +1,471 @@
+{
+  "name": "vscode-kiwifs",
+  "displayName": "kiwifs",
+  "publisher": "yyamamot",
+  "description": "VS Code extension bootstrap for Kiwi TCMS virtual filesystem integration",
+  "categories": [
+    "Other"
+  ],
+  "version": "0.0.1",
+  "license": "MIT",
+  "icon": "assets/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yyamamot/vscode-kiwifs.git"
+  },
+  "packageManager": "pnpm@10.30.3",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onFileSystem:kiwi",
+    "onCommand:kiwi.openRoot",
+    "onCommand:kiwi.searchCases",
+    "onCommand:kiwi.filterCases",
+    "onCommand:kiwi.openTestRunDashboard",
+    "onCommand:kiwi.configureBaseUrl",
+    "onCommand:kiwi.configureUsername",
+    "onCommand:kiwi.configurePassword",
+    "onCommand:kiwi.clearBaseUrl",
+    "onCommand:kiwi.clearUsername",
+    "onCommand:kiwi.clearPassword",
+    "onCommand:kiwi.clearConfiguration",
+    "onCommand:kiwi.refreshPlans",
+    "onCommand:kiwi.openTreeItem",
+    "onCommand:kiwi.showPlanInfo",
+    "onCommand:kiwi.createCase",
+    "onCommand:kiwi.addExistingCaseToPlan",
+    "onCommand:kiwi.removeCaseFromPlan",
+    "onCommand:kiwi.downloadPlanToLocalMirror",
+    "onCommand:kiwi.showPlanLocalMirrorStatus",
+    "onCommand:kiwi.refreshCaseDocument",
+    "onCommand:kiwi.showCaseDiff",
+    "onCommand:kiwi.showCaseInfo",
+    "onCommand:kiwi.editCaseMetadata",
+    "onCommand:kiwi.duplicateCase",
+    "onCommand:kiwi.manageCaseExecutionsAcrossRuns",
+    "onCommand:kiwi.recordCaseExecutionResult",
+    "onCommand:kiwi.showCaseAttachments",
+    "onCommand:kiwi.addCaseAttachment",
+    "onCommand:kiwi.openCaseAttachmentInBrowser",
+    "onCommand:kiwi.openCaseAttachmentInEditor",
+    "onCommand:kiwi.openInBrowser",
+    "onCommand:kiwi.openPlanInBrowser",
+    "onCommand:kiwi.downloadCaseToLocalMirror",
+    "onCommand:kiwi.compareLocalMirror",
+    "onCommand:kiwi.uploadLocalMirror",
+    "onCommand:kiwi.revealLocalMirror",
+    "onCommand:kiwi.clearRuntimeLogs",
+    "onCommand:kiwi.revealRuntimeLogs"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "kiwi.openRoot",
+        "title": "Kiwi: Open Root"
+      },
+      {
+        "command": "kiwi.searchCases",
+        "title": "Kiwi: テストケースを検索",
+        "icon": "$(search)"
+      },
+      {
+        "command": "kiwi.filterCases",
+        "title": "Kiwi: テストケースをフィルタ",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "kiwi.openTestRunDashboard",
+        "title": "Kiwi: テスト実行を表示",
+        "icon": "$(play-circle)"
+      },
+      {
+        "command": "kiwi.configureBaseUrl",
+        "title": "Kiwi: Configure Base URL"
+      },
+      {
+        "command": "kiwi.configureUsername",
+        "title": "Kiwi: Configure Username"
+      },
+      {
+        "command": "kiwi.configurePassword",
+        "title": "Kiwi: Configure Password"
+      },
+      {
+        "command": "kiwi.clearBaseUrl",
+        "title": "Kiwi: Clear Base URL"
+      },
+      {
+        "command": "kiwi.clearUsername",
+        "title": "Kiwi: Clear Username"
+      },
+      {
+        "command": "kiwi.clearPassword",
+        "title": "Kiwi: Clear Password"
+      },
+      {
+        "command": "kiwi.clearConfiguration",
+        "title": "Kiwi: Clear Configuration"
+      },
+      {
+        "command": "kiwi.refreshPlans",
+        "title": "一覧を更新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiwi.openTreeItem",
+        "title": "開く"
+      },
+      {
+        "command": "kiwi.showPlanInfo",
+        "title": "テスト計画を表示"
+      },
+      {
+        "command": "kiwi.createCase",
+        "title": "新規テストケースを作成"
+      },
+      {
+        "command": "kiwi.addExistingCaseToPlan",
+        "title": "既存テストケースをこの計画に追加"
+      },
+      {
+        "command": "kiwi.removeCaseFromPlan",
+        "title": "テストケースをこの計画から外す"
+      },
+      {
+        "command": "kiwi.downloadPlanToLocalMirror",
+        "title": "配下をローカルミラーに同期",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "kiwi.showPlanLocalMirrorStatus",
+        "title": "ローカルミラー状態を表示"
+      },
+      {
+        "command": "kiwi.refreshCaseDocument",
+        "title": "テストケースを更新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiwi.showCaseDiff",
+        "title": "差分を表示",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "kiwi.showCaseInfo",
+        "title": "テストケース情報を表示"
+      },
+      {
+        "command": "kiwi.editCaseMetadata",
+        "title": "テストケースメタデータを編集"
+      },
+      {
+        "command": "kiwi.duplicateCase",
+        "title": "このテストケースを複製"
+      },
+      {
+        "command": "kiwi.recordCaseExecutionResult",
+        "title": "実行結果を記録"
+      },
+      {
+        "command": "kiwi.manageCaseExecutionsAcrossRuns",
+        "title": "複数のテスト実行を管理"
+      },
+      {
+        "command": "kiwi.showCaseAttachments",
+        "title": "添付一覧を表示"
+      },
+      {
+        "command": "kiwi.addCaseAttachment",
+        "title": "添付を追加"
+      },
+      {
+        "command": "kiwi.openCaseAttachmentInBrowser",
+        "title": "添付をブラウザで表示"
+      },
+      {
+        "command": "kiwi.openCaseAttachmentInEditor",
+        "title": "添付をエディタで表示"
+      },
+      {
+        "command": "kiwi.openInBrowser",
+        "title": "ブラウザで表示",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "kiwi.openPlanInBrowser",
+        "title": "ブラウザで表示",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "kiwi.downloadCaseToLocalMirror",
+        "title": "ローカルミラーに同期",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "kiwi.compareLocalMirror",
+        "title": "ローカルミラーを比較",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "kiwi.uploadLocalMirror",
+        "title": "ローカルミラーを反映",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "kiwi.revealLocalMirror",
+        "title": "ローカルミラーを開く",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "kiwi.clearRuntimeLogs",
+        "title": "Kiwi: Clear Runtime Logs",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "kiwi.revealRuntimeLogs",
+        "title": "Kiwi: Reveal Runtime Logs",
+        "icon": "$(folder-opened)"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "kiwiPlans",
+          "name": "Kiwi Plans"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "kiwiPlans",
+        "contents": "Kiwi への接続を設定します。\n[Configure Base URL](command:kiwi.configureBaseUrl)\n[Configure Username](command:kiwi.configureUsername)\n[Configure Password](command:kiwi.configurePassword)",
+        "when": "config.kiwi.baseUrl == ''"
+      },
+      {
+        "view": "kiwiPlans",
+        "contents": "Kiwi Plans を開きます。\n[Open Root](command:kiwi.openRoot)\n[Configure Base URL](command:kiwi.configureBaseUrl)\n[Configure Username](command:kiwi.configureUsername)\n[Configure Password](command:kiwi.configurePassword)",
+        "when": "config.kiwi.baseUrl != ''"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "kiwi.searchCases",
+          "when": "view == kiwiPlans",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiwi.filterCases",
+          "when": "view == kiwiPlans",
+          "group": "navigation@2"
+        },
+        {
+          "command": "kiwi.openTestRunDashboard",
+          "when": "view == kiwiPlans",
+          "group": "navigation@3"
+        },
+        {
+          "command": "kiwi.refreshPlans",
+          "when": "view == kiwiPlans",
+          "group": "navigation@4"
+        },
+        {
+          "command": "kiwi.clearRuntimeLogs",
+          "when": "view == kiwiPlans && kiwi.runtimeLogsEnabled",
+          "group": "navigation@5"
+        },
+        {
+          "command": "kiwi.revealRuntimeLogs",
+          "when": "view == kiwiPlans && kiwi.runtimeLogsEnabled",
+          "group": "navigation@6"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "kiwi.clearRuntimeLogs",
+          "when": "kiwi.runtimeLogsEnabled"
+        },
+        {
+          "command": "kiwi.revealRuntimeLogs",
+          "when": "kiwi.runtimeLogsEnabled"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "kiwi.showPlanInfo",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "inspect@1"
+        },
+        {
+          "command": "kiwi.showCaseInfo",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@1"
+        },
+        {
+          "command": "kiwi.editCaseMetadata",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@2"
+        },
+        {
+          "command": "kiwi.openPlanInBrowser",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "inspect@2"
+        },
+        {
+          "command": "kiwi.createCase",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "inspect@3"
+        },
+        {
+          "command": "kiwi.addExistingCaseToPlan",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "inspect@4"
+        },
+        {
+          "command": "kiwi.removeCaseFromPlan",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "inspect@5"
+        },
+        {
+          "command": "kiwi.downloadPlanToLocalMirror",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "mirror@1"
+        },
+        {
+          "command": "kiwi.showPlanLocalMirrorStatus",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "mirror@2"
+        },
+        {
+          "command": "kiwi.showCaseDiff",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@5"
+        },
+        {
+          "command": "kiwi.duplicateCase",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@3"
+        },
+        {
+          "command": "kiwi.recordCaseExecutionResult",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@4"
+        },
+        {
+          "command": "kiwi.manageCaseExecutionsAcrossRuns",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@5"
+        },
+        {
+          "command": "kiwi.openInBrowser",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "attachments@1"
+        },
+        {
+          "command": "kiwi.addCaseAttachment",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "attachments@4"
+        },
+        {
+          "command": "kiwi.openCaseAttachmentInBrowser",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "attachments@3"
+        },
+        {
+          "command": "kiwi.openCaseAttachmentInEditor",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "attachments@2"
+        },
+        {
+          "command": "kiwi.refreshCaseDocument",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "sync@1"
+        },
+        {
+          "command": "kiwi.refreshPlans",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "admin@1"
+        },
+        {
+          "command": "kiwi.compareLocalMirror",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "sync@3"
+        },
+        {
+          "command": "kiwi.downloadCaseToLocalMirror",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "sync@2"
+        },
+        {
+          "command": "kiwi.uploadLocalMirror",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "sync@4"
+        },
+        {
+          "command": "kiwi.revealLocalMirror",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "sync@5"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "kiwi.openInBrowser",
+          "when": "resourceScheme == kiwi && resourcePath =~ /\\/cases\\/.+\\.md$/",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Kiwi FS",
+      "properties": {
+        "kiwi.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Kiwi TCMS base URL used outside local development."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "node -e \"console.log('lint stub: no linter configured yet')\"",
+    "format": "node -e \"console.log('format stub: no formatter configured yet')\"",
+    "build": "node ./scripts/build.mjs",
+    "build:test": "tsc -p tsconfig.json",
+    "package:vsix": "node ./scripts/vsix.mjs package",
+    "install:vsix": "node ./scripts/vsix.mjs install",
+    "uninstall:vsix": "node ./scripts/vsix.mjs uninstall",
+    "test:unit": "vitest run --dir test/unit",
+    "test:integration": "vitest run --dir test/integration",
+    "test:integration:host": "pnpm run build && pnpm run build:test && node ./out/test/integration-host/run.js",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run test:unit",
+    "verify": "pnpm run build && pnpm run test:unit && pnpm run test:integration && pnpm run test:integration:host"
+  },
+  "files": [
+    "dist/**",
+    "assets/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "package.json"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.27.2",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.3.0",
+    "@types/vscode": "^1.105.0",
+    "@types/xmlrpc": "^1.3.10",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "mocha": "^11.7.1",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
+    "yaml": "^2.8.1"
+  },
+  "dependencies": {
+    "xmlrpc": "^1.3.2"
+  }
+}

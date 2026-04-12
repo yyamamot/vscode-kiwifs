@@ -1,0 +1,14 @@
+.env
+.env.local
+.kiwi-logs/
+.kiwi-mirror/
+
+node_modules/
+dist/
+out/
+coverage/
+.pnpm-store/
+
+.DS_Store
+.vscode-test/
+*.vsix
