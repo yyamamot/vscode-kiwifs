@@ -145,6 +145,28 @@ export class MockFileAdapter implements KiwiAdapter {
     return history.map((item) => ({ ...item }));
   }
 
+  async getCaseHistoryVersion(config: KiwiConfig, caseId: number, historyId: number) {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    const caseData = this.lookupCase(state, caseId);
+    const entry = (state.histories[String(caseId)] ?? []).find((item) => item.historyId === historyId);
+    if (!entry) {
+      throw new KiwiError("NotFound", `Case ${caseId} history ${historyId} was not found.`);
+    }
+    if (entry.text === undefined) {
+      throw new KiwiError("ValidationFailed", `Case ${caseId} history ${historyId} does not include text.`);
+    }
+    return {
+      caseId,
+      historyId,
+      historyDate: entry.historyDate,
+      historyChangeReason: entry.historyChangeReason,
+      historyType: entry.historyType,
+      summary: caseData.summary,
+      text: entry.text
+    };
+  }
+
   async listCaseStatuses(config: KiwiConfig): Promise<string[]> {
     const state = await this.authorize(config);
     this.ensureConnected(state);
@@ -163,6 +185,43 @@ export class MockFileAdapter implements KiwiAdapter {
     return Object.values(state.testRuns ?? {})
       .sort((left, right) => left.id - right.id)
       .map((item) => ({ ...item }));
+  }
+
+  async listRegisteredRunsForCase(config: KiwiConfig, caseId: number): Promise<KiwiTestRun[]> {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    this.lookupCase(state, caseId);
+    const runIds = new Set(
+      Object.values(state.executions ?? {})
+        .filter((item) => item.caseId === caseId)
+        .map((item) => item.runId)
+    );
+    return Object.values(state.testRuns ?? {})
+      .filter((item) => runIds.has(item.id))
+      .sort((left, right) => left.id - right.id)
+      .map((item) => ({ ...item }));
+  }
+
+  async searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]> {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    const query = input.query.trim().toLowerCase();
+    return Object.values(state.testRuns ?? {})
+      .filter((item) => input.planId === undefined || item.planId === input.planId)
+      .filter((item) => {
+        if (!query) {
+          return true;
+        }
+        if (/^\d+$/.test(query)) {
+          return String(item.id) === query || item.summary.toLowerCase().includes(query);
+        }
+        return [item.summary, item.build, item.manager ?? ""].some((value) => value.toLowerCase().includes(query));
+      })
+      .sort((left, right) => left.id - right.id)
+      .map((item) => ({
+        ...item,
+        planName: state.plans.find((plan) => plan.id === item.planId)?.name
+      }));
   }
 
   async listBuildsForPlan(config: KiwiConfig, planId: number): Promise<KiwiBuildOption[]> {

@@ -42,6 +42,7 @@ export interface KiwiTestRun {
   summary: string;
   build: string;
   planId?: number;
+  planName?: string;
   manager?: string;
 }
 
@@ -84,6 +85,18 @@ export interface KiwiCaseHistoryEntry {
   historyId?: number;
   historyDate: string;
   historyChangeReason?: string;
+  historyType?: string;
+  text?: string;
+}
+
+export interface KiwiCaseHistoryVersion {
+  caseId: number;
+  historyId: number;
+  historyDate: string;
+  historyChangeReason?: string;
+  historyType?: string;
+  summary: string;
+  text: string;
 }
 
 export interface KiwiCaseAttachment {

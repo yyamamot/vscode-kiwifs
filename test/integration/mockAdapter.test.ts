@@ -54,6 +54,38 @@ describe("mockAdapter", () => {
     expect(updated.text).toContain("2. Sign in");
   });
 
+  it("gets a case history version body by history id", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "latest body"
+    });
+    await harness.seedCaseHistory(501, [
+      {
+        historyId: 10,
+        historyDate: "2026-04-05T00:00:00.000Z",
+        historyType: "~",
+        text: "history body"
+      }
+    ]);
+    const adapter = new MockFileAdapter(harness.statePath);
+    const config = { baseUrl: harness.baseUrl, username: "admin", password: "admin" };
+
+    const version = await adapter.getCaseHistoryVersion(config, 501, 10);
+    expect(version.text).toBe("history body");
+    expect(version.summary).toBe("Login works");
+    await expect(adapter.getCaseHistoryVersion(config, 501, 99)).rejects.toThrow(/history 99/);
+  });
+
   it("supports remote change simulation", async () => {
     const harness = await createKiwiHarness();
     await harness.seedPlans([{ id: 100, name: "Regression" }]);

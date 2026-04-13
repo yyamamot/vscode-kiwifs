@@ -24,6 +24,7 @@ import {
 import { KiwiFileSystemProvider } from "../provider/KiwiFileSystemProvider";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { deriveVersionToken } from "../domain/versionToken";
+import { buildCaseHistoryQuickPickItems } from "./buildCaseHistoryQuickPickItems";
 import { KiwiError } from "../domain/errors";
 import {
   caseInfoUri,
@@ -485,6 +486,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         remoteUri: remoteUri.toString(),
         title
       };
+    }),
+    vscode.commands.registerCommand("kiwi.showCaseHistoryDiff", async (target?: KiwiPlansTreeNode, historyId?: number) => {
+      const resolvedTarget = target?.kind === "case" ? target : undefined;
+      if (!resolvedTarget) {
+        void vscode.window.showInformationMessage("Select a Kiwi case first.");
+        return undefined;
+      }
+
+      try {
+        const { adapter, config } = await clientFactory();
+        const history = await adapter.getCaseHistory(config, resolvedTarget.caseRef.id);
+        const selectedHistoryId = historyId ?? (await pickCaseHistoryId(history));
+        if (selectedHistoryId === undefined) {
+          return undefined;
+        }
+
+        const [historyVersion, latestCase] = await Promise.all([
+          adapter.getCaseHistoryVersion(config, resolvedTarget.caseRef.id, selectedHistoryId),
+          adapter.getCaseBody(config, resolvedTarget.caseRef.id, resolvedTarget.plan.id)
+        ]);
+        const title = `${resolvedTarget.caseRef.summary} (History ${selectedHistoryId} ↔ Latest)`;
+        const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+        const historyUri = caseDiffUri("history", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
+        const latestUri = caseDiffUri("latest", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
+        caseDiffProvider.setContent(historyUri, renderCaseDiffDocument({ body: historyVersion.text }));
+        caseDiffProvider.setContent(latestUri, renderCaseDiffDocument({ body: latestCase.text }));
+        await vscode.commands.executeCommand("vscode.diff", historyUri, latestUri, title, {
+          preview: false
+        });
+        return {
+          historyUri: historyUri.toString(),
+          latestUri: latestUri.toString(),
+          title
+        };
+      } catch (error) {
+        void vscode.window.showErrorMessage(humanMessage(error));
+        return undefined;
+      }
     }),
     vscode.commands.registerCommand("kiwi.showCaseInfo", async (target?: KiwiPlansTreeNode) => {
       const resolved = await resolveCaseInfoTarget(target, clientFactory);
@@ -1657,6 +1696,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       return vscode.commands.executeCommand("kiwi.showCaseDiff", target);
     }),
+    vscode.commands.registerCommand("kiwi.__test.showCaseHistoryDiff", async (historyId: number) => {
+      const target: KiwiPlansTreeNode = {
+        kind: "case",
+        plan: {
+          id: 100,
+          name: "Regression"
+        },
+        caseRef: {
+          id: 501,
+          summary: "Login works"
+        }
+      };
+      return vscode.commands.executeCommand("kiwi.showCaseHistoryDiff", target, historyId);
+    }),
     vscode.commands.registerCommand("kiwi.__test.openInBrowser", async (target?: KiwiPlansTreeNode) => {
       const fallbackTarget: KiwiPlansTreeNode = {
         kind: "case",
@@ -2381,7 +2434,7 @@ function activeCaseNode(): Extract<KiwiPlansTreeNode, { kind: "case" }> | undefi
 }
 
 function caseDiffUri(
-  side: "local" | "remote",
+  side: "local" | "remote" | "history" | "latest",
   plan: { id: number; name: string },
   caseRef: { id: number; summary: string },
   requestId: string
@@ -2389,6 +2442,20 @@ function caseDiffUri(
   return vscode.Uri.parse(
     `kiwi-diff:/${side}/plans/${encodeURIComponent(`${plan.id} - ${plan.name}`)}/cases/${encodeURIComponent(`${caseRef.id} - ${caseRef.summary}.md`)}?requestId=${encodeURIComponent(requestId)}`
   );
+}
+
+async function pickCaseHistoryId(history: Awaited<ReturnType<ReturnType<typeof createAdapter>["getCaseHistory"]>>): Promise<number | undefined> {
+  const items = buildCaseHistoryQuickPickItems(history);
+  if (items.length === 0) {
+    void vscode.window.showInformationMessage("Selectable case history was not found.");
+    return undefined;
+  }
+  const picked = await vscode.window.showQuickPick(items, {
+    placeHolder: "差分表示する履歴を選択してください",
+    matchOnDescription: true,
+    matchOnDetail: true
+  });
+  return picked?.history.historyId;
 }
 
 function planInfoUri(plan: { id: number; name: string }): vscode.Uri {

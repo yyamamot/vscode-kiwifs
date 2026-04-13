@@ -7,14 +7,10 @@ import {
 describe("buildCaseExecutionBoardState", () => {
   it("groups only registered executions by plan", () => {
     const groups = buildRegisteredCaseExecutionBoardGroups({
-      plans: [
-        { id: 100, name: "TP1-x86" },
-        { id: 200, name: "TP2-arm64" }
-      ],
       runs: [
-        { id: 300, summary: "TR100 test1", build: "2026.04", planId: 100 },
-        { id: 301, summary: "TR101 test2", build: "2026.04", planId: 100 },
-        { id: 400, summary: "TR102 test1", build: "2026.04-arm", planId: 200 }
+        { id: 300, summary: "TR100 test1", build: "2026.04", planId: 100, planName: "TP1-x86" },
+        { id: 301, summary: "TR101 test2", build: "2026.04", planId: 100, planName: "TP1-x86" },
+        { id: 400, summary: "TR102 test1", build: "2026.04-arm", planId: 200, planName: "TP2-arm64" }
       ],
       executions: [
         {
@@ -51,14 +47,10 @@ describe("buildCaseExecutionBoardState", () => {
 
   it("builds add candidates from only unregistered runs", () => {
     const items = buildCaseExecutionBoardAddQuickPickItems({
-      plans: [
-        { id: 100, name: "TP1-x86" },
-        { id: 200, name: "TP2-arm64" }
-      ],
       runs: [
-        { id: 300, summary: "TR100 test1", build: "2026.04", planId: 100 },
-        { id: 301, summary: "TR101 test2", build: "2026.04", planId: 100 },
-        { id: 400, summary: "TR102 test1", build: "2026.04-arm", planId: 200 }
+        { id: 300, summary: "TR100 test1", build: "2026.04", planId: 100, planName: "TP1-x86" },
+        { id: 301, summary: "TR101 test2", build: "2026.04", planId: 100, planName: "TP1-x86" },
+        { id: 400, summary: "TR102 test1", build: "2026.04-arm", planId: 200, planName: "TP2-arm64" }
       ],
       executions: [
         {

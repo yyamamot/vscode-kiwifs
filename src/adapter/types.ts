@@ -5,6 +5,7 @@ import {
   KiwiCaseBody,
   KiwiCaseCreatePayload,
   KiwiCaseHistoryEntry,
+  KiwiCaseHistoryVersion,
   KiwiCaseMetadataPatch,
   KiwiConfig,
   KiwiCaseExecution,
@@ -35,9 +36,12 @@ export interface KiwiAdapter {
     b64content: string
   ): Promise<void>;
   getCaseHistory(config: KiwiConfig, caseId: number): Promise<KiwiCaseHistoryEntry[]>;
+  getCaseHistoryVersion(config: KiwiConfig, caseId: number, historyId: number): Promise<KiwiCaseHistoryVersion>;
   listCaseStatuses(config: KiwiConfig): Promise<string[]>;
   listPriorities(config: KiwiConfig): Promise<string[]>;
   listTestRuns(config: KiwiConfig): Promise<KiwiTestRun[]>;
+  listRegisteredRunsForCase(config: KiwiConfig, caseId: number): Promise<KiwiTestRun[]>;
+  searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]>;
   listBuildsForPlan(config: KiwiConfig, planId: number): Promise<KiwiBuildOption[]>;
   createTestRun(config: KiwiConfig, payload: KiwiTestRunCreatePayload): Promise<KiwiTestRun>;
   listCaseExecutions(config: KiwiConfig, caseId: number): Promise<KiwiCaseExecution[]>;

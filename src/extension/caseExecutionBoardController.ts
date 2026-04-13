@@ -5,9 +5,7 @@ import { diffExecutionResultPatch } from "../domain/executionResultForm";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { KiwiBuildOption, KiwiCaseExecution, KiwiConfig, KiwiExecutionStatus, KiwiPlan, KiwiTestRun } from "../types";
 import {
-  buildCaseExecutionBoardAddQuickPickItems,
   buildRegisteredCaseExecutionBoardGroups,
-  CaseExecutionBoardAddQuickPickItem,
   CaseExecutionBoardGroup,
   CaseExecutionBoardRow
 } from "./buildCaseExecutionBoardState";
@@ -44,7 +42,7 @@ type BoardState = {
 type PanelSession = {
   panel: vscode.WebviewPanel;
   state: BoardState;
-  sourceRuns: KiwiTestRun[];
+  sourceRegisteredRuns: KiwiTestRun[];
   sourceExecutions: KiwiCaseExecution[];
 };
 
@@ -99,14 +97,14 @@ export class CaseExecutionBoardController implements vscode.Disposable {
         addSection: {
           createForm: {
             summary: "",
-            planId: "",
+            planId: String(target.plan.id),
             buildId: "",
             manager: "",
             isVisible: false
           }
         }
       },
-      sourceRuns: [],
+      sourceRegisteredRuns: [],
       sourceExecutions: []
     };
     this.sessions.set(key, session);
@@ -120,6 +118,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       disposeDisposable.dispose();
     });
     this.disposables.push(messageDisposable, disposeDisposable);
+    const openedAt = Date.now();
     await this.reload(session);
     this.log({
       level: "info",
@@ -128,7 +127,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       entityId: String(target.caseRef.id),
       virtualPath: `kiwi:/cases/${target.caseRef.id}/executions`,
       outcome: "succeeded",
-      details: `caseId=${target.caseRef.id} summary=${target.caseRef.summary}`
+      details: `caseId=${target.caseRef.id} summary=${target.caseRef.summary} openMs=${Date.now() - openedAt}`
     });
     return panel;
   }
@@ -138,7 +137,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     return session ? cloneBoardState(session.state) : undefined;
   }
 
-  async createRunForTest(caseId: number, payload: { planId: number; summary: string; buildId: number; manager: string }) {
+  async createRunForTest(caseId: number, payload: { planId?: number; summary: string; buildId: number; manager: string }) {
     const session = this.sessions.get(String(caseId));
     if (!session) {
       throw new KiwiError("ValidationFailed", "Case execution board is not open.");
@@ -186,6 +185,13 @@ export class CaseExecutionBoardController implements vscode.Disposable {
           break;
         case "toggleCreateForm":
           session.state.addSection.createForm.isVisible = !session.state.addSection.createForm.isVisible;
+          if (session.state.addSection.createForm.isVisible) {
+            await this.ensureCreateFormSeed(session);
+          }
+          this.pushState(session);
+          break;
+        case "changeCreatePlan":
+          await this.changeCreatePlan(session, message.planId);
           this.pushState(session);
           break;
         case "addExistingRun":
@@ -219,37 +225,40 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     session.state.message = "テスト実行を読み込み中...";
     this.pushState(session);
 
-    const { adapter, config } = await this.clientFactory();
-    const [plans, runs, executions, statuses] = await Promise.all([
-      adapter.listPlans(config),
-      adapter.listTestRuns(config),
-      adapter.listCaseExecutions(config, session.state.target.caseRef.id),
-      adapter.listExecutionStatuses(config)
-    ]);
-    const buildEntries = await Promise.all(
-      plans.map(async (plan) => [String(plan.id), await adapter.listBuildsForPlan(config, plan.id)] as const)
-    );
-    const buildOptionsByPlan = Object.fromEntries(buildEntries);
-    const currentForm = session.state.addSection.createForm;
-    const initialPlanId = currentForm.planId || String(plans[0]?.id ?? "");
-    const initialBuildId =
-      currentForm.buildId ||
-      String(buildOptionsByPlan[initialPlanId]?.[0]?.id ?? "");
+    await this.refreshBoardData(session, { includeBuilds: true, includeStatuses: true });
+  }
 
-    session.sourceRuns = runs;
+  private async refreshBoardData(
+    session: PanelSession,
+    options: { includeBuilds: boolean; includeStatuses: boolean }
+  ): Promise<void> {
+    const { adapter, config } = await this.clientFactory();
+    const [registeredRuns, executions, statuses, buildOptions] = await Promise.all([
+      adapter.listRegisteredRunsForCase(config, session.state.target.caseRef.id),
+      adapter.listCaseExecutions(config, session.state.target.caseRef.id),
+      options.includeStatuses ? adapter.listExecutionStatuses(config) : Promise.resolve(session.state.statuses),
+      options.includeBuilds
+        ? adapter.listBuildsForPlan(config, session.state.target.plan.id)
+        : Promise.resolve(session.state.buildOptionsByPlan[String(session.state.target.plan.id)] ?? [])
+    ]);
+    const currentForm = session.state.addSection.createForm;
+    const initialBuildId = currentForm.buildId || String(buildOptions[0]?.id ?? "");
+
+    session.sourceRegisteredRuns = registeredRuns;
     session.sourceExecutions = executions;
-    session.state.plans = plans;
-    session.state.buildOptionsByPlan = buildOptionsByPlan;
+    session.state.buildOptionsByPlan = {
+      ...session.state.buildOptionsByPlan,
+      [String(session.state.target.plan.id)]: buildOptions
+    };
     session.state.groups = buildRegisteredCaseExecutionBoardGroups({
-      plans,
-      runs,
+      runs: registeredRuns,
       executions
     });
     session.state.statuses = statuses;
     session.state.addSection = {
       createForm: {
         summary: currentForm.summary,
-        planId: initialPlanId,
+        planId: currentForm.planId || String(session.state.target.plan.id),
         buildId: initialBuildId,
         manager: currentForm.manager || config.username,
         isVisible: currentForm.isVisible
@@ -271,11 +280,18 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     if (query === undefined) {
       return;
     }
-    const items = buildCaseExecutionBoardAddQuickPickItems({
-      plans: session.state.plans,
-      runs: session.sourceRuns,
-      executions: session.sourceExecutions
-    }).filter((item) => matchesRunQuery(item, query));
+    const { adapter, config } = await this.clientFactory();
+    const registeredRunIds = new Set(session.sourceExecutions.map((execution) => execution.runId));
+    const items = (await adapter.searchTestRuns(config, {
+      query
+    }))
+      .filter((run) => !registeredRunIds.has(run.id))
+      .map((run) => ({
+        label: `TR${run.id} ${run.summary}`,
+        description: run.planId !== undefined ? `${run.planId} - ${run.planName ?? `Plan ${run.planId}`}` : "",
+        detail: run.build ? `build: ${run.build}` : "",
+        run
+      }));
     if (items.length === 0) {
       session.state.message = "追加できる Test Run は見つかりませんでした。";
       this.pushState(session);
@@ -294,15 +310,16 @@ export class CaseExecutionBoardController implements vscode.Disposable {
 
   private async createRun(
     session: PanelSession,
-    payload: { planId: number; summary: string; buildId: number; manager: string }
+    payload: { planId?: number; summary: string; buildId: number; manager: string }
   ): Promise<KiwiTestRun> {
     const summary = payload.summary.trim();
     const manager = payload.manager.trim();
     const buildId = payload.buildId;
+    const planId = payload.planId ?? Number(session.state.addSection.createForm.planId);
     if (!summary) {
       throw new KiwiError("ValidationFailed", "Test Run summary is required.");
     }
-    if (!Number.isFinite(payload.planId) || payload.planId <= 0) {
+    if (!Number.isFinite(planId) || planId <= 0) {
       throw new KiwiError("ValidationFailed", "Test Run plan is required.");
     }
     if (!Number.isFinite(buildId) || buildId <= 0) {
@@ -311,23 +328,22 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     if (!manager) {
       throw new KiwiError("ValidationFailed", "Test Run manager is required.");
     }
-    const buildName =
-      session.state.buildOptionsByPlan[String(payload.planId)]?.find((item) => item.id === buildId)?.name ?? "";
+    const buildName = (session.state.buildOptionsByPlan[String(planId)] ?? []).find((item) => item.id === buildId)?.name ?? "";
     this.log({
       level: "info",
       event: "case-execution-board.create_run.started",
       operation: "createRun",
-      entityId: String(payload.planId),
+      entityId: String(planId),
       virtualPath: `kiwi:/cases/${session.state.target.caseRef.id}/executions`,
       outcome: "started",
-      details: `caseId=${session.state.target.caseRef.id} planId=${payload.planId} summary=${summary} buildId=${buildId} build=${buildName} manager=${manager}`
+      details: `caseId=${session.state.target.caseRef.id} planId=${planId} summary=${summary} buildId=${buildId} build=${buildName} manager=${manager}`
     });
     const { adapter, config } = await this.clientFactory();
     let created: KiwiTestRun;
     try {
       created = await adapter.createTestRun(config, {
         summary,
-        planId: payload.planId,
+        planId,
         buildId,
         manager
       });
@@ -337,22 +353,22 @@ export class CaseExecutionBoardController implements vscode.Disposable {
         level: "error",
         event: "case-execution-board.create_run.failed",
         operation: "createRun",
-        entityId: String(payload.planId),
+        entityId: String(planId),
         virtualPath: `kiwi:/cases/${session.state.target.caseRef.id}/executions`,
         outcome: "failed",
         message: humanMessage(error),
-        details: `caseId=${session.state.target.caseRef.id} planId=${payload.planId} summary=${summary} buildId=${buildId} build=${buildName} manager=${manager}`
+        details: `caseId=${session.state.target.caseRef.id} planId=${planId} summary=${summary} buildId=${buildId} build=${buildName} manager=${manager}`
       });
       throw error;
     }
     session.state.addSection.createForm = {
       summary: "",
-      planId: String(payload.planId),
+      planId: String(planId),
       buildId: String(buildId),
       manager,
       isVisible: false
     };
-    await this.reload(session);
+    await this.refreshBoardData(session, { includeBuilds: false, includeStatuses: false });
     this.log({
       level: "info",
       event: "case-execution-board.create_run.succeeded",
@@ -360,7 +376,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       entityId: String(created.id),
       virtualPath: `kiwi:/cases/${session.state.target.caseRef.id}/executions`,
       outcome: "succeeded",
-      details: `caseId=${session.state.target.caseRef.id} runId=${created.id} planId=${payload.planId} build=${created.build}`
+      details: `caseId=${session.state.target.caseRef.id} runId=${created.id} planId=${planId} build=${created.build}`
     });
     return created;
   }
@@ -391,7 +407,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       });
       throw error;
     }
-    await this.reload(session);
+    await this.refreshBoardData(session, { includeBuilds: false, includeStatuses: false });
     this.log({
       level: "info",
       event: "case-execution-board.add_case.succeeded",
@@ -440,7 +456,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       });
       throw error;
     }
-    await this.reload(session);
+    await this.refreshBoardData(session, { includeBuilds: false, includeStatuses: false });
     this.log({
       level: "info",
       event: "case-execution-board.save_execution.succeeded",
@@ -451,6 +467,48 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       details: `caseId=${session.state.target.caseRef.id} runId=${runId} executionId=${updated.id} status=${updated.status}`
     });
     return updated;
+  }
+
+  private async ensureCreateFormSeed(session: PanelSession): Promise<void> {
+    const planId = Number(session.state.addSection.createForm.planId || session.state.target.plan.id);
+    const loadPlans = session.state.plans.length === 0;
+    const loadBuilds = !session.state.buildOptionsByPlan[String(planId)];
+    if (!loadPlans && !loadBuilds) {
+      return;
+    }
+    const { adapter, config } = await this.clientFactory();
+    const [plans, builds] = await Promise.all([
+      loadPlans ? adapter.listPlans(config) : Promise.resolve(session.state.plans),
+      loadBuilds ? adapter.listBuildsForPlan(config, planId) : Promise.resolve(session.state.buildOptionsByPlan[String(planId)] ?? [])
+    ]);
+    session.state.plans = plans;
+    session.state.buildOptionsByPlan = {
+      ...session.state.buildOptionsByPlan,
+      ...(loadBuilds ? { [String(planId)]: builds } : {})
+    };
+    if (!session.state.addSection.createForm.planId) {
+      session.state.addSection.createForm.planId = String(planId);
+    }
+    if (!session.state.addSection.createForm.buildId) {
+      session.state.addSection.createForm.buildId = String((session.state.buildOptionsByPlan[String(planId)] ?? [])[0]?.id ?? "");
+    }
+  }
+
+  private async changeCreatePlan(session: PanelSession, planId: number): Promise<void> {
+    if (!Number.isFinite(planId) || planId <= 0) {
+      throw new KiwiError("ValidationFailed", "Test Run plan is required.");
+    }
+    session.state.addSection.createForm.planId = String(planId);
+    if (!session.state.buildOptionsByPlan[String(planId)]) {
+      const { adapter, config } = await this.clientFactory();
+      session.state.buildOptionsByPlan = {
+        ...session.state.buildOptionsByPlan,
+        [String(planId)]: await adapter.listBuildsForPlan(config, planId)
+      };
+    }
+    session.state.addSection.createForm.buildId = String(
+      (session.state.buildOptionsByPlan[String(planId)] ?? [])[0]?.id ?? ""
+    );
   }
 
   private async openRow(session: PanelSession, runId: number): Promise<void> {
@@ -490,23 +548,6 @@ export class CaseExecutionBoardController implements vscode.Disposable {
   }
 }
 
-function matchesRunQuery(item: CaseExecutionBoardAddQuickPickItem, rawQuery: string): boolean {
-  const query = rawQuery.trim().toLowerCase();
-  if (!query) {
-    return true;
-  }
-  if (/^\d+$/.test(query)) {
-    return String(item.run.id) === query || item.label.toLowerCase().includes(query);
-  }
-  return [
-    item.run.summary,
-    item.plan.name,
-    item.run.build,
-    item.description ?? "",
-    item.detail ?? ""
-  ].some((value) => value.toLowerCase().includes(query));
-}
-
 function findRow(state: BoardState, runId: number): CaseExecutionBoardRow | undefined {
   for (const group of state.groups) {
     const row = group.rows.find((item) => item.runId === runId);
@@ -525,7 +566,7 @@ function cloneBoardState(state: BoardState): BoardState {
     },
     plans: state.plans.map((plan) => ({ ...plan })),
     buildOptionsByPlan: Object.fromEntries(
-      Object.entries(state.buildOptionsByPlan).map(([planId, builds]) => [planId, builds.map((build) => ({ ...build }))])
+      Object.entries(state.buildOptionsByPlan).map(([planId, items]) => [planId, items.map((build) => ({ ...build }))])
     ),
     groups: state.groups.map((group) => ({
       planId: group.planId,
@@ -568,7 +609,7 @@ function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
     select, input, textarea, button { box-sizing: border-box; }
     select, input, textarea { width: 100%; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; }
     textarea { min-height: 72px; resize: vertical; }
-    .create-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(160px, .9fr) minmax(160px, .9fr) minmax(180px, .9fr) auto; gap: 8px; margin-top: 12px; }
+    .create-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(180px, .9fr) minmax(220px, 1.1fr) minmax(180px, .9fr) auto; gap: 8px; margin-top: 12px; }
     .message { margin-top: 14px; color: var(--vscode-descriptionForeground); }
     .empty { color: var(--vscode-descriptionForeground); padding: 18px 0; }
   </style>
@@ -632,7 +673,7 @@ function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
       for (const item of state.plans) {
         const option = document.createElement('option');
         option.value = String(item.id);
-        option.textContent = item.name;
+        option.textContent = item.id + ' - ' + item.name;
         if (String(item.id) === state.addSection.createForm.planId) option.selected = true;
         plan.appendChild(option);
       }
@@ -640,9 +681,8 @@ function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
       const build = document.createElement('select');
       fillBuildOptions(build, state.addSection.createForm.planId, state.addSection.createForm.buildId);
       plan.addEventListener('change', () => {
-        const planId = plan.value;
-        const firstBuildId = String((state.buildOptionsByPlan[planId] || [])[0]?.id || '');
-        fillBuildOptions(build, planId, firstBuildId);
+        build.innerHTML = '';
+        vscode.postMessage({ type: 'changeCreatePlan', planId: Number(plan.value) });
       });
 
       const manager = document.createElement('input');
@@ -775,6 +815,7 @@ type Message =
   | { type: "reload" }
   | { type: "close" }
   | { type: "toggleCreateForm" }
+  | { type: "changeCreatePlan"; planId: number }
   | { type: "addExistingRun" }
   | { type: "createRun"; planId: number; summary: string; buildId: number; manager: string }
   | { type: "saveRow"; runId: number; status: string; comment: string }

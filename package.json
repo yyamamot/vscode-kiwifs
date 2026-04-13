@@ -6,7 +6,7 @@
   "categories": [
     "Other"
   ],
-  "version": "0.0.1",
+  "version": "0.0.2",
   "license": "MIT",
   "icon": "assets/icon.png",
   "repository": {
@@ -42,6 +42,7 @@
     "onCommand:kiwi.showPlanLocalMirrorStatus",
     "onCommand:kiwi.refreshCaseDocument",
     "onCommand:kiwi.showCaseDiff",
+    "onCommand:kiwi.showCaseHistoryDiff",
     "onCommand:kiwi.showCaseInfo",
     "onCommand:kiwi.editCaseMetadata",
     "onCommand:kiwi.duplicateCase",
@@ -152,6 +153,11 @@
         "command": "kiwi.showCaseDiff",
         "title": "差分を表示",
         "icon": "$(diff)"
+      },
+      {
+        "command": "kiwi.showCaseHistoryDiff",
+        "title": "履歴差分を表示",
+        "icon": "$(history)"
       },
       {
         "command": "kiwi.showCaseInfo",
@@ -342,6 +348,11 @@
         {
           "command": "kiwi.showCaseDiff",
           "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@4"
+        },
+        {
+          "command": "kiwi.showCaseHistoryDiff",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
           "group": "inspect@5"
         },
         {
@@ -352,12 +363,12 @@
         {
           "command": "kiwi.recordCaseExecutionResult",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@4"
+          "group": "inspect@6"
         },
         {
           "command": "kiwi.manageCaseExecutionsAcrossRuns",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@5"
+          "group": "inspect@7"
         },
         {
           "command": "kiwi.openInBrowser",

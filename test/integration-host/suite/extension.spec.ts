@@ -65,7 +65,10 @@ describe("extension host", () => {
     await harness.seedCaseHistory(501, [
       {
         historyId: 10,
-        historyDate: "2026-04-05T00:00:00.000Z"
+        historyDate: "2026-04-05T00:00:00.000Z",
+        historyType: "~",
+        historyChangeReason: "initial body",
+        text: "# Login works\n\nHistorical body."
       }
     ]);
     await harness.seedCaseHistory(502, [
@@ -997,6 +1000,8 @@ describe("extension host", () => {
     assert.equal(title, "複数のテスト実行を管理: 501 - Login works");
 
     const initialState = await vscode.commands.executeCommand<{
+      plans: Array<{ id: number; name: string }>;
+      buildOptionsByPlan: Record<string, Array<{ id: number; name: string }>>;
       addSection: { createForm: { planId: string; buildId: string; manager: string } };
       groups: Array<{
         planId: number;
@@ -1005,9 +1010,14 @@ describe("extension host", () => {
       }>;
     }>("kiwi.__test.getCaseExecutionBoardState", 501);
     assert.equal(initialState?.groups.length, 2);
+    assert.equal(initialState?.plans.length ?? 0, 0);
     assert.equal(initialState?.addSection.createForm.planId, "100");
     assert.equal(initialState?.addSection.createForm.buildId, "1");
     assert.equal(initialState?.addSection.createForm.manager, "admin");
+    assert.deepEqual(initialState?.buildOptionsByPlan["100"], [
+      { id: 1, name: "2026.04" },
+      { id: 2, name: "2026.04-phase3" }
+    ]);
     assert.ok(initialState?.groups.find((group) => group.planId === 100)?.rows.some((row) => row.runId === 300));
     assert.ok(initialState?.groups.find((group) => group.planId === 200)?.rows.some((row) => row.runId === 301));
     assert.ok(!(initialState?.groups.find((group) => group.planId === 200)?.rows.some((row) => row.runId === 302)));
@@ -1316,6 +1326,26 @@ describe("extension host", () => {
     const remoteDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(diffResult!.remoteUri));
     assert.doesNotMatch(localDocument.getText(), /Changed on remote side\./);
     assert.match(remoteDocument.getText(), /Changed on remote side\./);
+  });
+
+  it("opens case history diff from a tree target", async function () {
+    this.timeout(20000);
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+
+    const diffResult = await vscode.commands.executeCommand<{
+      historyUri: string;
+      latestUri: string;
+      title: string;
+    }>("kiwi.__test.showCaseHistoryDiff", 10);
+
+    assert.ok(diffResult);
+    assert.equal(diffResult?.title, "Login works (History 10 ↔ Latest)");
+
+    const historyDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(diffResult!.historyUri));
+    const latestDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(diffResult!.latestUri));
+    assert.match(historyDocument.getText(), /Historical body\./);
+    assert.doesNotMatch(latestDocument.getText(), /Historical body\./);
+    assert.match(latestDocument.getText(), /# Login succeeds\./);
   });
 
   it("resolves case browser urls from tree targets and active editors", async function () {

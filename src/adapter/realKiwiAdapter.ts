@@ -12,6 +12,7 @@ import {
   KiwiCaseCreatePayload,
   KiwiBuildOption,
   KiwiCaseHistoryEntry,
+  KiwiCaseHistoryVersion,
   KiwiCaseMetadataPatch,
   KiwiPlan,
   KiwiExecutionStatus,
@@ -147,9 +148,29 @@ export class RealKiwiAdapter implements KiwiAdapter {
         .map((record) => ({
           historyId: optionalNumber(record.history_id),
           historyDate: asIsoString(record.history_date, "history_date"),
-          historyChangeReason: optionalString(record.history_change_reason)
+          historyChangeReason: optionalString(record.history_change_reason),
+          historyType: optionalString(record.history_type)
         }))
         .sort(compareHistoryDesc);
+    });
+  }
+
+  async getCaseHistoryVersion(config: KiwiConfig, caseId: number, historyId: number): Promise<KiwiCaseHistoryVersion> {
+    return this.execute(config, async (session) => {
+      const records = await callArray(session, "TestCase.history", [caseId, { history_id: historyId }]);
+      const record = records[0];
+      if (!record) {
+        throw new KiwiError("NotFound", `Case ${caseId} history ${historyId} was not found.`);
+      }
+      return {
+        caseId,
+        historyId: asNumber(record.history_id, "history_id"),
+        historyDate: asIsoString(record.history_date, "history_date"),
+        historyChangeReason: optionalString(record.history_change_reason),
+        historyType: optionalString(record.history_type),
+        summary: asString(record.summary, "summary"),
+        text: optionalString(record.text) ?? ""
+      };
     });
   }
 
@@ -174,19 +195,32 @@ export class RealKiwiAdapter implements KiwiAdapter {
   async listTestRuns(config: KiwiConfig): Promise<KiwiTestRun[]> {
     return this.execute(config, async (session) => {
       const records = await callArray(session, "TestRun.filter", [{}]);
-      return records
-        .map((record) => ({
-          id: asNumber(record.id, "id"),
-          summary: optionalString(record.summary) ?? optionalString(record.name) ?? "",
-          build: optionalString(record.build__name) ?? optionalString(record.build) ?? "",
-          planId: optionalNumber(record.plan) ?? optionalNumber(record.plan_id),
-          manager:
-            optionalString(record.manager__username) ??
-            optionalString(record.manager__name) ??
-            optionalString(record.manager) ??
-            undefined
-        }))
-        .sort((left, right) => left.id - right.id);
+      return records.map(mapTestRunRecord).sort((left, right) => left.id - right.id);
+    });
+  }
+
+  async listRegisteredRunsForCase(config: KiwiConfig, caseId: number): Promise<KiwiTestRun[]> {
+    return this.execute(config, async (session) => {
+      await this.findCaseRecordById(session, caseId);
+      const records = await callArray(session, "TestRun.filter", [{ executions__case: caseId }]);
+      return records.map(mapTestRunRecord).sort((left, right) => left.id - right.id);
+    });
+  }
+
+  async searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]> {
+    return this.execute(config, async (session) => {
+      const query = input.query.trim();
+      const filter: RpcStruct = {};
+      if (input.planId !== undefined) {
+        filter.plan = input.planId;
+      }
+      if (/^\d+$/.test(query)) {
+        filter.id = Number(query);
+      } else if (query) {
+        filter.summary__icontains = query;
+      }
+      const records = await callArray(session, "TestRun.filter", [filter]);
+      return records.map(mapTestRunRecord).sort((left, right) => left.id - right.id);
     });
   }
 
@@ -246,15 +280,22 @@ export class RealKiwiAdapter implements KiwiAdapter {
   async listCaseExecutions(config: KiwiConfig, caseId: number): Promise<KiwiCaseExecution[]> {
     return this.execute(config, async (session) => {
       await this.findCaseRecordById(session, caseId);
-      const records = await callArray(session, "TestExecution.filter", [{ case: caseId }]);
-      const executions = records.map(mapExecutionRecord).sort((left, right) => left.id - right.id);
-      const runSummaries = await this.listRunSummariesById(session, [
-        ...new Set(executions.map((item) => item.runId))
+      const [executionRecords, runRecords] = await Promise.all([
+        callArray(session, "TestExecution.filter", [{ case: caseId }]),
+        callArray(session, "TestRun.filter", [{ executions__case: caseId }])
       ]);
-      return executions.map((execution) => ({
-        ...execution,
-        runSummary: runSummaries.get(execution.runId) ?? execution.runSummary
-      }));
+      const runSummaryById = new Map(
+        runRecords.map((record) => [asNumber(record.id, "id"), optionalString(record.summary) ?? optionalString(record.name) ?? ""])
+      );
+      return executionRecords
+        .map((record) => {
+          const execution = mapExecutionRecord(record);
+          return {
+            ...execution,
+            runSummary: runSummaryById.get(execution.runId) ?? execution.runSummary
+          };
+        })
+        .sort((left, right) => left.id - right.id);
     });
   }
 
@@ -550,18 +591,6 @@ export class RealKiwiAdapter implements KiwiAdapter {
     return record.id;
   }
 
-  private async listRunSummariesById(session: RpcSession, runIds: number[]): Promise<Map<number, string>> {
-    const result = new Map<number, string>();
-    for (const runId of runIds) {
-      const records = await callArray(session, "TestRun.filter", [{ id: runId }]);
-      const record = records[0];
-      if (record) {
-        result.set(runId, optionalString(record.summary) ?? optionalString(record.name) ?? `Run ${runId}`);
-      }
-    }
-    return result;
-  }
-
   private extractPlanProductId(record: RpcStruct): number {
     const candidates = ["product", "product_id", "product__id"] as const;
     for (const field of candidates) {
@@ -780,6 +809,21 @@ function mapPlanRecord(record: RpcStruct): KiwiPlan {
     id: asNumber(record.id, "id"),
     name: asString(record.name, "name"),
     text: optionalString(record.text)
+  };
+}
+
+function mapTestRunRecord(record: RpcStruct): KiwiTestRun {
+  return {
+    id: asNumber(record.id, "id"),
+    summary: optionalString(record.summary) ?? optionalString(record.name) ?? "",
+    build: optionalString(record.build__name) ?? optionalString(record.build) ?? "",
+    planId: optionalNumber(record.plan) ?? optionalNumber(record.plan_id),
+    planName: optionalString(record.plan__name) ?? optionalString(record.plan_name) ?? undefined,
+    manager:
+      optionalString(record.manager__username) ??
+      optionalString(record.manager__name) ??
+      optionalString(record.manager) ??
+      undefined
   };
 }
 
