@@ -261,7 +261,7 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
   </style>
 </head>
 <body>
-  <h1>実行結果を記録</h1>
+  <h1>テストケースの実行結果を更新</h1>
   <div class="meta" id="meta"></div>
   <label for="status">Status</label>
   <select id="status"></select>
@@ -322,7 +322,7 @@ function sessionKey(executionId: number): string {
 }
 
 function panelTitle(target: ExecutionResultTarget): string {
-  return `実行結果を記録: ${target.caseRef.id} - ${target.caseRef.summary}`;
+  return `テストケースの実行結果を更新: ${target.caseRef.id} - ${target.caseRef.summary}`;
 }
 
 function escapeHtml(value: string): string {

@@ -7,12 +7,15 @@ import {
   KiwiCaseHistoryEntry,
   KiwiCaseHistoryVersion,
   KiwiCaseMetadataPatch,
+  KiwiCaseSearchMode,
+  KiwiCaseSearchResult,
   KiwiConfig,
   KiwiCaseExecution,
   KiwiBuildOption,
   KiwiExecutionStatus,
   KiwiExecutionUpdatePatch,
   KiwiPlan,
+  KiwiTemplate,
   KiwiTestRun,
   KiwiTestRunCreatePayload,
   PlanCaseRef
@@ -39,9 +42,14 @@ export interface KiwiAdapter {
   getCaseHistoryVersion(config: KiwiConfig, caseId: number, historyId: number): Promise<KiwiCaseHistoryVersion>;
   listCaseStatuses(config: KiwiConfig): Promise<string[]>;
   listPriorities(config: KiwiConfig): Promise<string[]>;
+  listCaseTemplates(config: KiwiConfig): Promise<KiwiTemplate[]>;
+  searchCases(
+    config: KiwiConfig,
+    input: { query: string; mode: KiwiCaseSearchMode }
+  ): Promise<KiwiCaseSearchResult[]>;
   listTestRuns(config: KiwiConfig): Promise<KiwiTestRun[]>;
   listRegisteredRunsForCase(config: KiwiConfig, caseId: number): Promise<KiwiTestRun[]>;
-  searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]>;
+  searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number; build?: string }): Promise<KiwiTestRun[]>;
   listBuildsForPlan(config: KiwiConfig, planId: number): Promise<KiwiBuildOption[]>;
   createTestRun(config: KiwiConfig, payload: KiwiTestRunCreatePayload): Promise<KiwiTestRun>;
   listCaseExecutions(config: KiwiConfig, caseId: number): Promise<KiwiCaseExecution[]>;
@@ -56,6 +64,7 @@ export interface KiwiAdapter {
   createCase(config: KiwiConfig, planId: number, payload: KiwiCaseCreatePayload): Promise<KiwiCase>;
   addCaseToPlan(config: KiwiConfig, planId: number, caseId: number): Promise<void>;
   removeCaseFromPlan(config: KiwiConfig, planId: number, caseId: number): Promise<void>;
+  deleteCase(config: KiwiConfig, caseId: number): Promise<void>;
   updateCaseText(config: KiwiConfig, caseId: number, text: string): Promise<KiwiCase>;
   updateCaseMetadata(
     config: KiwiConfig,

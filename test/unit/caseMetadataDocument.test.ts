@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCaseTemplateOptions,
   DEFAULT_CASE_BODY_TEMPLATE,
+  DEFAULT_TEMPLATE_ID,
   diffCaseMetadataPatch,
+  resolveCaseTemplateText,
   toCaseCreatePayload,
   toCaseMetadataFormState,
   toEditableCaseMetadata
@@ -81,5 +84,36 @@ describe("caseMetadataDocument", () => {
       tags: ["regression", "smoke"],
       text: DEFAULT_CASE_BODY_TEMPLATE
     });
+  });
+
+  it("builds template options with the default template first", () => {
+    const options = buildCaseTemplateOptions([
+      { id: 10, name: "Regression Template", text: "# Regression" }
+    ]);
+
+    expect(options).toEqual([
+      {
+        id: DEFAULT_TEMPLATE_ID,
+        name: "既定テンプレート",
+        text: DEFAULT_CASE_BODY_TEMPLATE,
+        isDefault: true
+      },
+      {
+        id: "10",
+        name: "Regression Template",
+        text: "# Regression",
+        isDefault: false
+      }
+    ]);
+  });
+
+  it("resolves selected template text with default fallback", () => {
+    const options = buildCaseTemplateOptions([
+      { id: 10, name: "Regression Template", text: "# Regression" }
+    ]);
+
+    expect(resolveCaseTemplateText(options, "10")).toBe("# Regression");
+    expect(resolveCaseTemplateText(options, "missing")).toBe(DEFAULT_CASE_BODY_TEMPLATE);
+    expect(resolveCaseTemplateText(options, undefined)).toBe(DEFAULT_CASE_BODY_TEMPLATE);
   });
 });

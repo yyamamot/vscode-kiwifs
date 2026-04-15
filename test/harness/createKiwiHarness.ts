@@ -9,7 +9,8 @@ import {
   KiwiCaseHistoryEntry,
   KiwiExecutionStatus,
   KiwiTestRun,
-  KiwiPlan
+  KiwiPlan,
+  KiwiTemplate
 } from "../../src/types";
 import {
   MockCaseAttachmentRecord,
@@ -25,6 +26,7 @@ export interface KiwiHarness {
   seedPlanCases(planId: number, caseIds: number[]): Promise<void>;
   seedCaseDocument(value: KiwiCase): Promise<void>;
   seedCaseHistory(caseId: number, history: KiwiCaseHistoryEntry[]): Promise<void>;
+  seedCaseTemplates(templates: KiwiTemplate[]): Promise<void>;
   seedCaseAttachments(caseId: number, attachments: MockCaseAttachmentRecord[]): Promise<void>;
   seedBuildsForPlan(planId: number, builds: KiwiBuildOption[]): Promise<void>;
   seedTestRuns(testRuns: KiwiTestRun[]): Promise<void>;
@@ -49,6 +51,7 @@ export async function createKiwiHarness(): Promise<KiwiHarness> {
     cases: {},
     attachments: {},
     histories: {},
+    templates: [],
     buildsByPlan: {},
     testRuns: {},
     executions: {},
@@ -83,6 +86,11 @@ export async function createKiwiHarness(): Promise<KiwiHarness> {
     async seedCaseHistory(caseId, history) {
       const state = await loadMockState(statePath);
       state.histories[String(caseId)] = history.map((item) => ({ ...item }));
+      await saveMockState(statePath, state);
+    },
+    async seedCaseTemplates(templates) {
+      const state = await loadMockState(statePath);
+      state.templates = templates.map((item) => ({ ...item }));
       await saveMockState(statePath, state);
     },
     async seedCaseAttachments(caseId, attachments) {

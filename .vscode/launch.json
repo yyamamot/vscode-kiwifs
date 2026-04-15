@@ -1,0 +1,59 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Kiwi FS: Debug F5",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "KIWI_RUNTIME_MODE": "debug-f5",
+        "KIWI_RUNTIME_ROOT": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Kiwi FS: Debug F5 (growifs workspace)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/../vscode-growifs/vscode-growifs.code-workspace"
+      ],
+      "env": {
+        "KIWI_RUNTIME_MODE": "debug-f5",
+        "KIWI_RUNTIME_ROOT": "${workspaceFolder}/../vscode-growifs"
+      }
+    },
+    {
+      "name": "Kiwi FS: Debug F5 (No Runtime Log)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}"
+      ],
+      "env": {
+        "KIWI_RUNTIME_ROOT": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Kiwi FS: Debug F5 (growifs workspace, No Runtime Log)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}",
+        "${workspaceFolder}/../vscode-growifs/vscode-growifs.code-workspace"
+      ],
+      "env": {
+        "KIWI_RUNTIME_ROOT": "${workspaceFolder}/../vscode-growifs"
+      }
+    }
+  ]
+}

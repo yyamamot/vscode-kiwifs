@@ -15,16 +15,22 @@ import {
   storeUsername
 } from "../config/resolveConfig";
 import { createAdapter } from "../adapter/createAdapter";
+import { KiwiAdapter } from "../adapter/types";
 import {
   KiwiCase,
   KiwiCaseAttachment,
   KiwiCaseAttachmentContent,
-  KiwiCaseBody
+  KiwiCaseBody,
+  KiwiConfig
 } from "../types";
 import { KiwiFileSystemProvider } from "../provider/KiwiFileSystemProvider";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { deriveVersionToken } from "../domain/versionToken";
-import { buildCaseHistoryQuickPickItems } from "./buildCaseHistoryQuickPickItems";
+import {
+  buildCaseHistoryDiffQuickPickItems,
+  findCaseHistoryDiffPair,
+  type CaseHistoryDiffPair
+} from "./buildCaseHistoryQuickPickItems";
 import { KiwiError } from "../domain/errors";
 import {
   caseInfoUri,
@@ -34,6 +40,7 @@ import {
 } from "./KiwiPlansTreeDataProvider";
 import { renderCaseInfoDocument } from "./renderCaseInfoDocument";
 import { renderCaseDiffDocument, renderCaseDiffTitle } from "./renderCaseDiffDocument";
+import { renderCaseHistoryDocument } from "./renderCaseHistoryDocument";
 import { renderCaseAttachmentsDocument } from "./renderCaseAttachmentsDocument";
 import { renderPlanInfoDocument } from "./renderPlanInfoDocument";
 import { renderPlanLocalMirrorStatusDocument } from "./renderPlanLocalMirrorStatusDocument";
@@ -46,7 +53,10 @@ import {
   buildAttachmentQuickPickItems
 } from "./buildAttachmentQuickPickItems";
 import {
+  buildCaseSearchMatchesFromResults,
   buildCaseSearchQuickPickItems,
+  paginateCaseSearchItems,
+  parseCaseSearchQuery,
   filterCaseSearchMatches,
   type CaseSearchQuickPickItem
 } from "./buildCaseSearchQuickPickItems";
@@ -86,6 +96,12 @@ import {
 } from "./executionResultController";
 import { CaseExecutionBoardController } from "./caseExecutionBoardController";
 import { TestRunDashboardController } from "./testRunDashboardController";
+import { TestRunFilterController } from "./testRunFilterController";
+import { CaseFreshnessService, type CaseFreshnessResult } from "./caseFreshnessService";
+import {
+  recordAutoCaseFreshnessCheck,
+  shouldSkipAutoCaseFreshnessCheck
+} from "./autoCaseFreshnessTracker";
 
 let providerRegistration: vscode.Disposable | undefined;
 const RUNTIME_LOGS_ENABLED_CONTEXT = "kiwi.runtimeLogsEnabled";
@@ -111,8 +127,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       adapter
     };
   };
-  const provider = new KiwiFileSystemProvider(clientFactory, logger);
   const treeDataProvider = new KiwiPlansTreeDataProvider(clientFactory, logger);
+  const provider = new KiwiFileSystemProvider(clientFactory, logger, ({ caseId }) => {
+    treeDataProvider.markCaseStale(caseId, "remote が更新されています。差分確認または明示更新してください。");
+  });
+  const caseFreshnessService = new CaseFreshnessService(clientFactory, provider);
+  const autoCaseFreshnessState = {
+    lastCheckedUri: undefined as string | undefined,
+    lastCheckedVersionToken: undefined as string | undefined
+  };
   const attachmentUploadService = new AttachmentUploadService(clientFactory);
   const metadataEditorController = new CaseMetadataEditorController(clientFactory, async (result) => {
       await handleCaseMetadataEditorSaved({
@@ -142,6 +165,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await vscode.commands.executeCommand("vscode.open", uri);
     return uri;
   });
+  const testRunFilterController = new TestRunFilterController(clientFactory, async (runId) => {
+    await testRunDashboardController.openRun(runId);
+  });
   providerRegistration = vscode.workspace.registerFileSystemProvider("kiwi", provider, {
     isCaseSensitive: true
   });
@@ -151,11 +177,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(executionResultController);
   context.subscriptions.push(caseExecutionBoardController);
   context.subscriptions.push(testRunDashboardController);
+  context.subscriptions.push(testRunFilterController);
   context.subscriptions.push(
     vscode.workspace.onDidCloseTextDocument((document) => {
       if (isCaseDocumentUri(document.uri)) {
         provider.releaseCaseDocument(document.uri);
       }
+    })
+  );
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (!editor || !isCaseDocumentUri(editor.document.uri)) {
+        autoCaseFreshnessState.lastCheckedUri = undefined;
+        autoCaseFreshnessState.lastCheckedVersionToken = undefined;
+        return;
+      }
+
+      const session = provider.getCaseDocumentSession(editor.document.uri);
+      if (
+        shouldSkipAutoCaseFreshnessCheck(
+          autoCaseFreshnessState,
+          editor.document.uri,
+          session?.versionToken
+        )
+      ) {
+        return;
+      }
+      recordAutoCaseFreshnessCheck(
+        autoCaseFreshnessState,
+        editor.document.uri,
+        session?.versionToken
+      );
+      void checkCaseFreshness({
+        provider,
+        treeDataProvider,
+        service: caseFreshnessService,
+        showActions: false
+      });
     })
   );
   let treeView: vscode.TreeView<KiwiPlansTreeNode>;
@@ -170,6 +228,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(treeView);
   const caseInfoProvider = new CaseInfoDocumentProvider();
   const caseDiffProvider = new CaseDiffDocumentProvider();
+  const caseHistoryProvider = new CaseHistoryDocumentProvider();
   const planInfoProvider = new PlanInfoDocumentProvider();
   const planLocalMirrorStatusProvider = new PlanLocalMirrorStatusDocumentProvider();
   const caseAttachmentsProvider = new CaseAttachmentsDocumentProvider();
@@ -179,6 +238,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("kiwi-diff", caseDiffProvider)
+  );
+  context.subscriptions.push(
+    vscode.workspace.registerTextDocumentContentProvider("kiwi-history", caseHistoryProvider)
   );
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("kiwi-plan-info", planInfoProvider)
@@ -236,13 +298,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             return undefined;
           }
 
-          const items = await vscode.window.withProgress(
+          const matches = await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
               title: "テストケースを検索中..."
             },
             async () => {
               const { adapter, config } = await clientFactory();
+              const parsedQuery = parseCaseSearchQuery(query);
+              if (!parsedQuery.query) {
+                return [];
+              }
               const plans = (await adapter.listPlans(config)).sort((left, right) => left.id - right.id);
               const planCases = await Promise.all(
                 plans.map(async (plan) => ({
@@ -250,39 +316,43 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                   cases: (await adapter.listPlanCases(config, plan.id)).sort((left, right) => left.id - right.id)
                 }))
               );
-              return buildCaseSearchQuickPickItems(filterCaseSearchMatches(planCases, query));
+              if (parsedQuery.mode === "body") {
+                return buildCaseSearchMatchesFromResults(
+                  planCases,
+                  await adapter.searchCases(config, parsedQuery)
+                );
+              }
+              return filterCaseSearchMatches(planCases, parsedQuery.query);
             }
           );
 
-          if (items.length === 0) {
+          if (matches.length === 0) {
             void vscode.window.showInformationMessage("一致するテストケースはありません。");
             return [];
           }
 
-          const picked =
+          let visibleCount = 50;
+          let items = buildVisibleCaseSearchItems(matches, visibleCount);
+          let picked =
             injectedSelectionCaseId !== undefined
-              ? items.find((item) => item.caseRef.id === injectedSelectionCaseId)
+              ? items.find((item) => item.itemType === "case" && item.caseRef.id === injectedSelectionCaseId)
               : await pickCaseSearchItem(items);
+          while (!injectedSelectionCaseId && picked?.itemType === "more") {
+            visibleCount += 50;
+            items = buildVisibleCaseSearchItems(matches, visibleCount);
+            picked = await pickCaseSearchItem(items);
+          }
           if (!picked) {
-            return items.map((item) => ({
-              label: item.label,
-              description: item.description,
-              detail: item.detail,
-              caseId: item.caseRef.id,
-              planId: item.plan.id
-            }));
+            return serializeCaseSearchItems(items);
+          }
+          if (picked.itemType === "more") {
+            return serializeCaseSearchItems(items);
           }
 
           const uri = caseDocumentUri(picked.plan, picked.caseRef);
           await vscode.commands.executeCommand("vscode.open", uri);
           return {
-            items: items.map((item) => ({
-              label: item.label,
-              description: item.description,
-              detail: item.detail,
-              caseId: item.caseRef.id,
-              planId: item.plan.id
-            })),
+            items: serializeCaseSearchItems(items),
             opened: uri.toString()
           };
         } catch (error) {
@@ -307,7 +377,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (await vscode.window.showInputBox({
           placeHolder: "https://kiwi.example.com/",
           prompt: "接続先の Kiwi base URL を入力してください",
-          title: "Kiwi: Configure Base URL",
+          title: "Kiwi: ベース URL を設定",
           value: configuration.get<string>("baseUrl") ?? ""
         }));
       if (input === undefined) {
@@ -330,7 +400,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (await vscode.window.showInputBox({
           placeHolder: "admin",
           prompt: "Kiwi ユーザ名を入力してください",
-          title: "Kiwi: Configure Username",
+          title: "Kiwi: ユーザー名を設定",
           value: (await readStoredUsername(context)) ?? ""
         }));
       if (input === undefined) {
@@ -352,7 +422,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           password: true,
           placeHolder: "Paste password",
           prompt: "Kiwi パスワードを入力してください",
-          title: "Kiwi: Configure Password"
+          title: "Kiwi: パスワードを設定"
         }));
       if (input === undefined) {
         return undefined;
@@ -466,6 +536,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return false;
       }
     }),
+    vscode.commands.registerCommand("kiwi.checkCaseFreshness", async (target?: KiwiPlansTreeNode) => {
+      return checkCaseFreshness({
+        target,
+        provider,
+        treeDataProvider,
+        service: caseFreshnessService,
+        showActions: true
+      });
+    }),
     vscode.commands.registerCommand("kiwi.showCaseDiff", async (target?: KiwiPlansTreeNode) => {
       const resolved = await resolveCaseDiffTarget(target, provider, clientFactory);
       if (!resolved) {
@@ -497,29 +576,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const { adapter, config } = await clientFactory();
         const history = await adapter.getCaseHistory(config, resolvedTarget.caseRef.id);
-        const selectedHistoryId = historyId ?? (await pickCaseHistoryId(history));
-        if (selectedHistoryId === undefined) {
+        const selectedPair =
+          historyId !== undefined
+            ? findCaseHistoryDiffPair(history, historyId)
+            : await pickCaseHistoryDiffPair(history);
+        if (!selectedPair) {
           return undefined;
         }
 
-        const [historyVersion, latestCase] = await Promise.all([
-          adapter.getCaseHistoryVersion(config, resolvedTarget.caseRef.id, selectedHistoryId),
-          adapter.getCaseBody(config, resolvedTarget.caseRef.id, resolvedTarget.plan.id)
+        const [leftVersion, rightVersion] = await Promise.all([
+          adapter.getCaseHistoryVersion(config, resolvedTarget.caseRef.id, selectedPair.left.historyId),
+          selectedPair.right.kind === "history"
+            ? adapter.getCaseHistoryVersion(config, resolvedTarget.caseRef.id, selectedPair.right.historyId)
+            : adapter.getCaseBody(config, resolvedTarget.caseRef.id, resolvedTarget.plan.id)
         ]);
-        const title = `${resolvedTarget.caseRef.summary} (History ${selectedHistoryId} ↔ Latest)`;
+        const rightLabel =
+          selectedPair.right.kind === "history" ? `History ${selectedPair.right.historyId}` : "Latest";
+        const title = `${resolvedTarget.caseRef.summary} (History ${selectedPair.left.historyId} ↔ ${rightLabel})`;
         const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-        const historyUri = caseDiffUri("history", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
-        const latestUri = caseDiffUri("latest", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
-        caseDiffProvider.setContent(historyUri, renderCaseDiffDocument({ body: historyVersion.text }));
-        caseDiffProvider.setContent(latestUri, renderCaseDiffDocument({ body: latestCase.text }));
-        await vscode.commands.executeCommand("vscode.diff", historyUri, latestUri, title, {
+        const leftUri = caseDiffUri("history", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
+        const rightUri = caseDiffUri("latest", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
+        caseDiffProvider.setContent(leftUri, renderCaseDiffDocument({ body: leftVersion.text }));
+        caseDiffProvider.setContent(rightUri, renderCaseDiffDocument({ body: rightVersion.text }));
+        await vscode.commands.executeCommand("vscode.diff", leftUri, rightUri, title, {
           preview: false
         });
         return {
-          historyUri: historyUri.toString(),
-          latestUri: latestUri.toString(),
+          historyUri: leftUri.toString(),
+          latestUri: rightUri.toString(),
           title
         };
+      } catch (error) {
+        void vscode.window.showErrorMessage(humanMessage(error));
+        return undefined;
+      }
+    }),
+    vscode.commands.registerCommand("kiwi.showCaseHistory", async (target?: KiwiPlansTreeNode) => {
+      const resolvedTarget = target?.kind === "case" ? target : undefined;
+      if (!resolvedTarget) {
+        void vscode.window.showInformationMessage("Select a Kiwi case first.");
+        return undefined;
+      }
+
+      try {
+        const { adapter, config } = await clientFactory();
+        const history = await adapter.getCaseHistory(config, resolvedTarget.caseRef.id);
+        const uri = caseHistoryUri(resolvedTarget.plan, resolvedTarget.caseRef);
+        caseHistoryProvider.setContent(
+          uri,
+          renderCaseHistoryDocument({
+            caseId: resolvedTarget.caseRef.id,
+            summary: resolvedTarget.caseRef.summary,
+            history
+          })
+        );
+        await vscode.commands.executeCommand("vscode.open", uri);
+        return uri.toString();
       } catch (error) {
         void vscode.window.showErrorMessage(humanMessage(error));
         return undefined;
@@ -623,7 +735,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const currentCases = await adapter.listPlanCases(config, resolved.plan.id);
           if (currentCases.some((caseRef) => caseRef.id === picked.entry.caseId)) {
             void vscode.window.showInformationMessage(
-              "このテストケースは既にこの計画に含まれています。"
+              "テストケースは既にこの計画に含まれています。"
             );
             return {
               planId: resolved.plan.id,
@@ -637,7 +749,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           provider.refreshListings();
           treeDataProvider.refresh();
           void vscode.window.showInformationMessage(
-            "既存テストケースをこの計画に追加しました。"
+            "テスト計画に既存テストケースを追加しました。"
           );
           return {
             planId: resolved.plan.id,
@@ -657,66 +769,72 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         injectedSelectionCaseId?: number,
         injectedConfirmation?: boolean
       ) => {
-        const resolved = resolveAddExistingCaseToPlanTarget(target);
+        return runRemoveCaseFromPlan({
+          clientFactory,
+          provider,
+          treeDataProvider,
+          target,
+          injectedSelectionCaseId,
+          injectedConfirmation,
+          source: "case"
+        });
+      }
+    ),
+    vscode.commands.registerCommand(
+      "kiwi.removeCaseFromPlanFromPlan",
+      async (
+        target?: KiwiPlansTreeNode,
+        injectedSelectionCaseId?: number,
+        injectedConfirmation?: boolean
+      ) => {
+        return runRemoveCaseFromPlan({
+          clientFactory,
+          provider,
+          treeDataProvider,
+          target,
+          injectedSelectionCaseId,
+          injectedConfirmation,
+          source: "plan"
+        });
+      }
+    ),
+    vscode.commands.registerCommand(
+      "kiwi.deleteCase",
+      async (target?: KiwiPlansTreeNode, injectedConfirmation?: boolean) => {
+        const resolved = target?.kind === "case" ? target : undefined;
         if (!resolved) {
+          void vscode.window.showInformationMessage("Select a Kiwi case first.");
           return undefined;
         }
 
         try {
           const { adapter, config } = await clientFactory();
-          const items = await vscode.window.withProgress(
-            {
-              location: vscode.ProgressLocation.Notification,
-              title: "この計画のテストケースを取得中..."
-            },
-            async () =>
-              buildRemoveCaseFromPlanQuickPickItems(
-                resolved.plan,
-                await adapter.listPlanCases(config, resolved.plan.id)
-              )
-          );
-
-          if (items.length === 0) {
-            void vscode.window.showInformationMessage(
-              "この計画に含まれるテストケースはありません。"
-            );
-            return [];
-          }
-
-          const picked =
-            injectedSelectionCaseId !== undefined
-              ? items.find((item) => item.caseRef.id === injectedSelectionCaseId)
-              : await pickRemoveCaseFromPlanItem(items);
-          if (!picked) {
-            return items.map((item) => serializeRemoveCaseFromPlanItem(item));
-          }
-
           const proceed =
             injectedConfirmation ??
             ((await vscode.window.showWarningMessage(
-              `この計画からテストケース ${picked.caseRef.id} - ${picked.caseRef.summary} を外しますか？`,
+              `テストケース ${resolved.caseRef.id} - ${resolved.caseRef.summary} を削除しますか？ Kiwi TCMS 上の case 本体を削除し、開いている Case Document は閉じて未保存変更も破棄します。`,
               { modal: true },
-              "外す"
-            )) === "外す");
+              "削除"
+            )) === "削除");
           if (!proceed) {
             return {
               planId: resolved.plan.id,
-              caseId: picked.caseRef.id,
-              summary: picked.caseRef.summary,
+              caseId: resolved.caseRef.id,
+              summary: resolved.caseRef.summary,
               cancelled: true
             };
           }
 
-          await adapter.removeCaseFromPlan(config, resolved.plan.id, picked.caseRef.id);
+          await adapter.deleteCase(config, resolved.caseRef.id);
+          await closeOpenedCaseDocumentsForDeletedCase(provider, resolved.caseRef.id);
           provider.refreshListings();
+          treeDataProvider.clearCaseFreshness(resolved.caseRef.id);
           treeDataProvider.refresh();
-          void vscode.window.showInformationMessage(
-            "テストケースをこの計画から外しました。"
-          );
+          void vscode.window.showInformationMessage("テストケースを削除しました。");
           return {
             planId: resolved.plan.id,
-            caseId: picked.caseRef.id,
-            summary: picked.caseRef.summary
+            caseId: resolved.caseRef.id,
+            summary: resolved.caseRef.summary
           };
         } catch (error) {
           void vscode.window.showErrorMessage(humanMessage(error));
@@ -772,7 +890,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           if (executions.length === 0) {
             void vscode.window.showInformationMessage(
-              "このテストケースを含むテスト実行はありません。"
+              "テストケースを含むテスト実行はありません。"
             );
             return [];
           }
@@ -800,10 +918,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
     ),
-    vscode.commands.registerCommand("kiwi.openTestRunDashboard", async () => {
+    vscode.commands.registerCommand("kiwi.openTestRunDashboard", async (arg?: unknown) => {
       try {
-        const panel = await testRunDashboardController.open();
+        const runId = typeof arg === "number" && Number.isFinite(arg) ? arg : undefined;
+        const panel = await testRunDashboardController.openRun(runId);
         return panel?.title;
+      } catch (error) {
+        void vscode.window.showErrorMessage(humanMessage(error));
+        return undefined;
+      }
+    }),
+    vscode.commands.registerCommand("kiwi.filterTestRuns", async () => {
+      try {
+        const panel = await testRunFilterController.open();
+        return panel.title;
       } catch (error) {
         void vscode.window.showErrorMessage(humanMessage(error));
         return undefined;
@@ -1298,14 +1426,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("kiwi.__test.filterCases", async () => {
       return vscode.commands.executeCommand("kiwi.filterCases");
     }),
+    vscode.commands.registerCommand("kiwi.__test.filterTestRuns", async () => {
+      return vscode.commands.executeCommand("kiwi.filterTestRuns");
+    }),
     vscode.commands.registerCommand("kiwi.__test.getCaseFilterState", async () => {
       return caseFilterController.getStateForTest();
+    }),
+    vscode.commands.registerCommand("kiwi.__test.getCaseFilterHtml", async () => {
+      return caseFilterController.getHtmlForTest();
+    }),
+    vscode.commands.registerCommand("kiwi.__test.getTestRunFilterState", async () => {
+      return testRunFilterController.getStateForTest();
+    }),
+    vscode.commands.registerCommand("kiwi.__test.getTestRunFilterHtml", async () => {
+      return testRunFilterController.getHtmlForTest();
     }),
     vscode.commands.registerCommand("kiwi.__test.submitCaseFilter", async (formState) => {
       return caseFilterController.searchForTest(formState);
     }),
+    vscode.commands.registerCommand("kiwi.__test.submitTestRunFilter", async (formState) => {
+      return testRunFilterController.searchForTest(formState);
+    }),
     vscode.commands.registerCommand("kiwi.__test.openCaseFilterResult", async (caseId: number) => {
       return caseFilterController.openResultForTest(caseId);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.openTestRunFilterResult", async (runId: number) => {
+      return testRunFilterController.openResultForTest(runId);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.toggleCaseFilterSelection", async (caseId: number, selected: boolean) => {
+      return caseFilterController.toggleSelectedForTest(caseId, selected);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.bulkUpdateCaseFilterStatus", async (caseIds: number[], status: string) => {
+      return caseFilterController.bulkUpdateStatusForTest(caseIds, status);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.bulkAddCaseFilterTags", async (caseIds: number[], tagsInput: string) => {
+      return caseFilterController.bulkAddTagsForTest(caseIds, tagsInput);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.bulkRemoveCaseFilterTags", async (caseIds: number[], tagsInput: string) => {
+      return caseFilterController.bulkRemoveTagsForTest(caseIds, tagsInput);
     }),
     vscode.commands.registerCommand("kiwi.__test.getPlanTreeSnapshot", async () => {
       return treeDataProvider.snapshot();
@@ -1373,8 +1531,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           selectionCaseId?: number;
           confirmed?: boolean;
           targetPlanId?: number;
+          targetCaseId?: number;
+          targetCaseSummary?: string;
         } = {}
       ) => {
+        if (args.targetCaseId !== undefined) {
+          const target: KiwiPlansTreeNode = {
+            kind: "case",
+            plan: {
+              id: args.targetPlanId ?? 100,
+              name: (args.targetPlanId ?? 100) === 100 ? "Regression" : "Secondary"
+            },
+            caseRef: {
+              id: args.targetCaseId,
+              summary: args.targetCaseSummary ?? "Login works"
+            }
+          };
+          return vscode.commands.executeCommand(
+            "kiwi.removeCaseFromPlan",
+            target,
+            undefined,
+            args.confirmed
+          );
+        }
         const targetPlanId = args.targetPlanId ?? 100;
         const target: KiwiPlansTreeNode = {
           kind: "plan",
@@ -1384,11 +1563,35 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
         };
         return vscode.commands.executeCommand(
-          "kiwi.removeCaseFromPlan",
+          "kiwi.removeCaseFromPlanFromPlan",
           target,
           args.selectionCaseId,
           args.confirmed
         );
+      }
+    ),
+    vscode.commands.registerCommand(
+      "kiwi.__test.deleteCase",
+      async (
+        args: {
+          confirmed?: boolean;
+          targetPlanId?: number;
+          targetCaseId?: number;
+          targetCaseSummary?: string;
+        } = {}
+      ) => {
+        const target: KiwiPlansTreeNode = {
+          kind: "case",
+          plan: {
+            id: args.targetPlanId ?? 100,
+            name: (args.targetPlanId ?? 100) === 100 ? "Regression" : "Secondary"
+          },
+          caseRef: {
+            id: args.targetCaseId ?? 501,
+            summary: args.targetCaseSummary ?? "Login works"
+          }
+        };
+        return vscode.commands.executeCommand("kiwi.deleteCase", target, args.confirmed);
       }
     ),
     vscode.commands.registerCommand("kiwi.__test.duplicateCase", async () => {
@@ -1526,8 +1729,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ),
     vscode.commands.registerCommand(
       "kiwi.__test.submitMetadataEditor",
-      async (formState, identifier = 501, mode: MetadataEditorMode = "edit") => {
-        return metadataEditorController.submitForTest(identifier, formState, mode);
+      async (formState, identifier = 501, mode: MetadataEditorMode = "edit", selectedTemplateId?: string) => {
+        return metadataEditorController.submitForTest(identifier, formState, mode, selectedTemplateId);
       }
     ),
     vscode.commands.registerCommand("kiwi.__test.readCaseState", async (caseId: number) => {
@@ -1710,6 +1913,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       return vscode.commands.executeCommand("kiwi.showCaseHistoryDiff", target, historyId);
     }),
+    vscode.commands.registerCommand("kiwi.__test.showCaseHistory", async () => {
+      const target: KiwiPlansTreeNode = {
+        kind: "case",
+        plan: {
+          id: 100,
+          name: "Regression"
+        },
+        caseRef: {
+          id: 501,
+          summary: "Login works"
+        }
+      };
+      return vscode.commands.executeCommand("kiwi.showCaseHistory", target);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.checkCaseFreshness", async () => {
+      const target: KiwiPlansTreeNode = {
+        kind: "case",
+        plan: {
+          id: 100,
+          name: "Regression"
+        },
+        caseRef: {
+          id: 501,
+          summary: "Login works"
+        }
+      };
+      return checkCaseFreshness({
+        target,
+        provider,
+        treeDataProvider,
+        service: caseFreshnessService,
+        showActions: false
+      });
+    }),
     vscode.commands.registerCommand("kiwi.__test.openInBrowser", async (target?: KiwiPlansTreeNode) => {
       const fallbackTarget: KiwiPlansTreeNode = {
         kind: "case",
@@ -1819,6 +2056,22 @@ class CaseDiffDocumentProvider implements vscode.TextDocumentContentProvider {
 
   provideTextDocumentContent(uri: vscode.Uri): string {
     return this.contents.get(uri.toString()) ?? "";
+  }
+
+  setContent(uri: vscode.Uri, content: string): void {
+    this.contents.set(uri.toString(), content);
+    this.emitter.fire(uri);
+  }
+}
+
+class CaseHistoryDocumentProvider implements vscode.TextDocumentContentProvider {
+  private readonly contents = new Map<string, string>();
+  private readonly emitter = new vscode.EventEmitter<vscode.Uri>();
+
+  readonly onDidChange = this.emitter.event;
+
+  provideTextDocumentContent(uri: vscode.Uri): string {
+    return this.contents.get(uri.toString()) ?? "# Case History\n\n履歴はありません。";
   }
 
   setContent(uri: vscode.Uri, content: string): void {
@@ -2304,6 +2557,62 @@ async function resolveCaseDiffTarget(
   }
 }
 
+async function checkCaseFreshness(args: {
+  target?: KiwiPlansTreeNode;
+  provider: KiwiFileSystemProvider;
+  treeDataProvider: KiwiPlansTreeDataProvider;
+  service: CaseFreshnessService;
+  showActions: boolean;
+}): Promise<CaseFreshnessResult | undefined> {
+  const resolvedTarget = args.target?.kind === "case" ? args.target : activeCaseNode();
+  const uri = resolvedTarget
+    ? caseDocumentUri(resolvedTarget.plan, resolvedTarget.caseRef)
+    : vscode.window.activeTextEditor?.document.uri;
+  if (!uri || !isCaseDocumentUri(uri)) {
+    void vscode.window.showInformationMessage("Open a Kiwi case document or select a case first.");
+    return undefined;
+  }
+
+  const result = await args.service.checkUri(uri);
+  if (result.status === "fresh") {
+    args.treeDataProvider.clearCaseFreshness(result.caseId);
+    if (args.showActions) {
+      void vscode.window.showInformationMessage("テストケースは最新です。");
+    }
+    return result;
+  }
+
+  if (result.status === "stale") {
+    args.treeDataProvider.markCaseStale(
+      result.caseId,
+      "remote が更新されています。差分確認または明示更新してください。"
+    );
+    if (args.showActions) {
+      const action = await vscode.window.showWarningMessage(
+        "remote が更新されています。差分確認または明示更新してください。",
+        "テストケースの差分を表示",
+        "テストケースを更新"
+      );
+      if (action === "テストケースの差分を表示") {
+        await vscode.commands.executeCommand("kiwi.showCaseDiff", resolvedTarget);
+      } else if (action === "テストケースを更新") {
+        if (vscode.window.activeTextEditor?.document.uri.toString() !== uri.toString()) {
+          await vscode.commands.executeCommand("vscode.open", uri);
+        }
+        await vscode.commands.executeCommand("kiwi.refreshCaseDocument");
+      }
+    }
+    return result;
+  }
+
+  if (args.showActions) {
+    void vscode.window.showInformationMessage(
+      result.reason ?? "最新状態を判定できませんでした。"
+    );
+  }
+  return result;
+}
+
 async function resolveCaseBrowserTarget(
   target: KiwiPlansTreeNode | undefined,
   clientFactory: () => Promise<{
@@ -2444,18 +2753,29 @@ function caseDiffUri(
   );
 }
 
-async function pickCaseHistoryId(history: Awaited<ReturnType<ReturnType<typeof createAdapter>["getCaseHistory"]>>): Promise<number | undefined> {
-  const items = buildCaseHistoryQuickPickItems(history);
+function caseHistoryUri(
+  plan: { id: number; name: string },
+  caseRef: { id: number; summary: string }
+): vscode.Uri {
+  return vscode.Uri.parse(
+    `kiwi-history:/plans/${encodeURIComponent(`${plan.id} - ${plan.name}`)}/cases/${encodeURIComponent(`Case ${caseRef.id} - ${caseRef.summary} history.md`)}`
+  );
+}
+
+async function pickCaseHistoryDiffPair(
+  history: Awaited<ReturnType<ReturnType<typeof createAdapter>["getCaseHistory"]>>
+): Promise<CaseHistoryDiffPair | undefined> {
+  const items = buildCaseHistoryDiffQuickPickItems(history);
   if (items.length === 0) {
     void vscode.window.showInformationMessage("Selectable case history was not found.");
     return undefined;
   }
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "差分表示する履歴を選択してください",
+    placeHolder: "差分表示する履歴ペアを選択してください",
     matchOnDescription: true,
     matchOnDetail: true
   });
-  return picked?.history.historyId;
+  return picked?.pair;
 }
 
 function planInfoUri(plan: { id: number; name: string }): vscode.Uri {
@@ -2512,7 +2832,7 @@ function humanMessage(error: unknown): string {
   if (error instanceof KiwiError) {
     switch (error.code) {
       case "AuthenticationFailed":
-        return "Kiwi authentication failed. Run 'Kiwi: Configure Base URL', 'Kiwi: Configure Username', and 'Kiwi: Configure Password'.";
+        return "Kiwi authentication failed. Verify the base URL, username, and password settings.";
       case "AuthorizationFailed":
         return "Kiwi authorization failed. Your account cannot access this data.";
       case "ConnectionFailed":
@@ -2529,6 +2849,35 @@ function humanMessage(error: unknown): string {
   }
 
   return String(error);
+}
+
+function buildVisibleCaseSearchItems(
+  matches: Parameters<typeof buildCaseSearchQuickPickItems>[0],
+  visibleCount: number
+): CaseSearchQuickPickItem[] {
+  const page = paginateCaseSearchItems(matches, visibleCount);
+  return buildCaseSearchQuickPickItems(page.visibleItems, {
+    totalCount: page.totalCount,
+    hasMore: page.hasMore
+  });
+}
+
+function serializeCaseSearchItems(items: CaseSearchQuickPickItem[]): Array<{
+  label: string;
+  description: string;
+  detail: string;
+  itemType: string;
+  caseId: number;
+  planId: number;
+}> {
+  return items.map((item) => ({
+    label: item.label,
+    description: item.description,
+    detail: item.detail,
+    itemType: item.itemType,
+    caseId: item.caseRef.id,
+    planId: item.plan.id
+  }));
 }
 
 async function pickAttachmentForBrowser(
@@ -2576,7 +2925,7 @@ async function pickExecutionItem(
   items: ExecutionQuickPickItem[]
 ): Promise<ExecutionQuickPickItem | undefined> {
   return vscode.window.showQuickPick(items, {
-    placeHolder: "実行結果を記録する Test Run を選択してください",
+    placeHolder: "テストケースの実行結果を更新する Test Run を選択してください",
     matchOnDescription: true,
     matchOnDetail: true
   });
@@ -2766,6 +3115,46 @@ async function reopenOpenedCaseDocumentsAfterSummaryChange(
   return "reopened";
 }
 
+async function closeOpenedCaseDocumentsForDeletedCase(
+  provider: KiwiFileSystemProvider,
+  caseId: number
+): Promise<"closed" | "dirty-closed" | "not-open"> {
+  const matchingDocuments = vscode.workspace.textDocuments.filter((document) => {
+    const identity = parseCaseDocumentIdentity(document.uri);
+    return identity?.caseId === caseId;
+  });
+  if (matchingDocuments.length === 0) {
+    return "not-open";
+  }
+
+  let closedDirty = false;
+  for (const document of matchingDocuments) {
+    provider.releaseCaseDocument(document.uri);
+    if (!document.isDirty) {
+      continue;
+    }
+    closedDirty = true;
+    await vscode.window.showTextDocument(document, {
+      preview: false,
+      preserveFocus: true
+    });
+    await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+  }
+
+  const targetUris = new Set(matchingDocuments.map((document) => document.uri.toString()));
+  const tabTargets = vscode.window.tabGroups.all.flatMap((group) =>
+    group.tabs.filter((tab) => {
+      const tabUri = getTabUriString(tab);
+      return tabUri ? targetUris.has(tabUri) : false;
+    })
+  );
+  if (tabTargets.length > 0) {
+    await vscode.window.tabGroups.close(tabTargets, true);
+  }
+
+  return closedDirty ? "dirty-closed" : "closed";
+}
+
 async function openCreatedCaseDocument(
   result: Extract<MetadataEditorSaveResult, { kind: "created" }>
 ): Promise<void> {
@@ -2779,6 +3168,122 @@ async function openCreatedCaseDocument(
   await vscode.window.showTextDocument(document, {
     preview: false
   });
+}
+
+async function runRemoveCaseFromPlan(args: {
+  clientFactory: () => Promise<{
+    adapter: KiwiAdapter;
+    config: KiwiConfig;
+  }>;
+  provider: KiwiFileSystemProvider;
+  treeDataProvider: KiwiPlansTreeDataProvider;
+  target?: KiwiPlansTreeNode;
+  injectedSelectionCaseId?: number;
+  injectedConfirmation?: boolean;
+  source: "plan" | "case";
+}) {
+  try {
+    const { adapter, config } = await args.clientFactory();
+    if (args.target?.kind === "case") {
+      const proceed =
+        args.injectedConfirmation ??
+        ((await vscode.window.showWarningMessage(
+          `この計画からテストケース ${args.target.caseRef.id} - ${args.target.caseRef.summary} を外しますか？`,
+          { modal: true },
+          "外す"
+        )) === "外す");
+      if (!proceed) {
+        return {
+          planId: args.target.plan.id,
+          caseId: args.target.caseRef.id,
+          summary: args.target.caseRef.summary,
+          cancelled: true
+        };
+      }
+
+      await adapter.removeCaseFromPlan(config, args.target.plan.id, args.target.caseRef.id);
+      args.provider.refreshListings();
+      args.treeDataProvider.refresh();
+      void vscode.window.showInformationMessage("テストケースをこの計画から外しました。");
+      return {
+        planId: args.target.plan.id,
+        caseId: args.target.caseRef.id,
+        summary: args.target.caseRef.summary
+      };
+    }
+
+    const resolved = resolveAddExistingCaseToPlanTarget(args.target);
+    if (!resolved) {
+      return undefined;
+    }
+
+    const items = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title:
+          args.source === "plan"
+            ? "テスト計画のテストケースを取得中..."
+            : "この計画のテストケースを取得中..."
+      },
+      async () =>
+        buildRemoveCaseFromPlanQuickPickItems(
+          resolved.plan,
+          await adapter.listPlanCases(config, resolved.plan.id)
+        )
+    );
+
+    if (items.length === 0) {
+      void vscode.window.showInformationMessage(
+        args.source === "plan"
+            ? "テスト計画に含まれるテストケースはありません。"
+          : "この計画に含まれるテストケースはありません。"
+      );
+      return [];
+    }
+
+    const picked =
+      args.injectedSelectionCaseId !== undefined
+        ? items.find((item) => item.caseRef.id === args.injectedSelectionCaseId)
+        : await pickRemoveCaseFromPlanItem(items);
+    if (!picked) {
+      return items.map((item) => serializeRemoveCaseFromPlanItem(item));
+    }
+
+    const proceed =
+      args.injectedConfirmation ??
+      ((await vscode.window.showWarningMessage(
+        args.source === "plan"
+            ? `テスト計画からテストケース ${picked.caseRef.id} - ${picked.caseRef.summary} を外しますか？`
+          : `この計画からテストケース ${picked.caseRef.id} - ${picked.caseRef.summary} を外しますか？`,
+        { modal: true },
+        "外す"
+      )) === "外す");
+    if (!proceed) {
+      return {
+        planId: resolved.plan.id,
+        caseId: picked.caseRef.id,
+        summary: picked.caseRef.summary,
+        cancelled: true
+      };
+    }
+
+    await adapter.removeCaseFromPlan(config, resolved.plan.id, picked.caseRef.id);
+    args.provider.refreshListings();
+    args.treeDataProvider.refresh();
+    void vscode.window.showInformationMessage(
+      args.source === "plan"
+        ? "テスト計画からテストケースを外しました。"
+        : "テストケースをこの計画から外しました。"
+    );
+    return {
+      planId: resolved.plan.id,
+      caseId: picked.caseRef.id,
+      summary: picked.caseRef.summary
+    };
+  } catch (error) {
+    void vscode.window.showErrorMessage(humanMessage(error));
+    return undefined;
+  }
 }
 
 function getTabUriString(tab: vscode.Tab): string | undefined {

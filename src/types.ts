@@ -32,6 +32,20 @@ export interface KiwiCaseCreatePayload {
   text: string;
 }
 
+export type KiwiCaseSearchMode = "id-summary" | "body";
+
+export interface KiwiCaseSearchResult {
+  caseId: number;
+  summary: string;
+  textSnippet?: string;
+}
+
+export interface KiwiTemplate {
+  id: number;
+  name: string;
+  text: string;
+}
+
 export interface KiwiExecutionStatus {
   id: number;
   name: string;

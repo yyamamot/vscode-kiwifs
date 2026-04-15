@@ -26,8 +26,21 @@ export type KiwiPlansTreeNode = PlanNode | CaseNode;
 export type KiwiPlansTreeSnapshotNode = {
   kind: KiwiPlansTreeNode["kind"];
   label: string;
+  description?: string;
+  tooltip?: string;
   children?: KiwiPlansTreeSnapshotNode[];
 };
+
+export type CaseFreshnessDecoration = {
+  status: "stale";
+  message: string;
+  checkedAt: number;
+};
+
+const STALE_CASE_ICON = new vscode.ThemeIcon(
+  "warning",
+  new vscode.ThemeColor("problemsWarningIcon.foreground")
+);
 
 export function caseInfoUri(plan: KiwiPlan, caseRef: PlanCaseRef): vscode.Uri {
   return vscode.Uri.parse(
@@ -44,6 +57,7 @@ export class KiwiPlansTreeDataProvider
   private readonly emitter = new vscode.EventEmitter<KiwiPlansTreeNode | undefined>();
   private readonly planListCache = new Map<number, KiwiPlan>();
   private readonly caseListCache = new Map<number, PlanCaseRef[]>();
+  private readonly staleCases = new Map<number, CaseFreshnessDecoration>();
 
   constructor(
     private readonly clientFactory: () => Promise<KiwiClient>,
@@ -55,7 +69,23 @@ export class KiwiPlansTreeDataProvider
   refresh(): void {
     this.planListCache.clear();
     this.caseListCache.clear();
+    this.staleCases.clear();
     this.emitter.fire(undefined);
+  }
+
+  markCaseStale(caseId: number, message = "remote changed"): void {
+    this.staleCases.set(caseId, {
+      status: "stale",
+      message,
+      checkedAt: Date.now()
+    });
+    this.emitter.fire(undefined);
+  }
+
+  clearCaseFreshness(caseId: number): void {
+    if (this.staleCases.delete(caseId)) {
+      this.emitter.fire(undefined);
+    }
   }
 
   async getTreeItem(element: KiwiPlansTreeNode): Promise<vscode.TreeItem> {
@@ -82,6 +112,12 @@ export class KiwiPlansTreeDataProvider
           title: "Open",
           arguments: [uri]
         };
+        const stale = this.staleCases.get(element.caseRef.id);
+        if (stale) {
+          item.description = "remote changed";
+          item.tooltip = `${caseFileName(element.caseRef)}\n${stale.message}`;
+          item.iconPath = STALE_CASE_ICON;
+        }
         return item;
       }
     }
@@ -120,6 +156,12 @@ export class KiwiPlansTreeDataProvider
           kind: child.kind,
           label: childItem.label as string
         };
+        if (typeof childItem.description === "string") {
+          snapshotChild.description = childItem.description;
+        }
+        if (typeof childItem.tooltip === "string") {
+          snapshotChild.tooltip = childItem.tooltip;
+        }
 
         const grandChildren = await this.getChildren(child);
         if (grandChildren.length > 0) {
@@ -128,7 +170,13 @@ export class KiwiPlansTreeDataProvider
             const grandChildItem = await this.getTreeItem(grandChild);
             snapshotChild.children.push({
               kind: grandChild.kind,
-              label: grandChildItem.label as string
+              label: grandChildItem.label as string,
+              description: typeof grandChildItem.description === "string"
+                ? grandChildItem.description
+                : undefined,
+              tooltip: typeof grandChildItem.tooltip === "string"
+                ? grandChildItem.tooltip
+                : undefined
             });
           }
         }
@@ -262,7 +310,7 @@ function humanMessage(error: unknown): string {
   if (error instanceof KiwiError) {
     switch (error.code) {
       case "AuthenticationFailed":
-        return "Kiwi authentication failed. Run 'Kiwi: Configure Base URL', 'Kiwi: Configure Username', and 'Kiwi: Configure Password'.";
+        return "Kiwi authentication failed. Verify the base URL, username, and password settings.";
       case "AuthorizationFailed":
         return "Kiwi authorization failed. Your account cannot access this data.";
       case "ConnectionFailed":

@@ -19,6 +19,7 @@ describe("caseFilter", () => {
     const filter = normalizeCaseFilterFormState(
       {
         query: " Login ",
+        queryTarget: "id-summary",
         planId: "100",
         status: "CONFIRMED",
         priority: "P1",
@@ -29,6 +30,7 @@ describe("caseFilter", () => {
 
     expect(filter).toEqual({
       query: "Login",
+      queryTarget: "id-summary",
       planId: 100,
       status: "CONFIRMED",
       priority: "P1",
@@ -41,6 +43,7 @@ describe("caseFilter", () => {
     const filter = normalizeCaseFilterFormState(
       {
         query: " ",
+        queryTarget: "id-summary",
         planId: "",
         status: "",
         priority: "",
@@ -79,19 +82,19 @@ describe("caseFilter", () => {
   it("validates selected plan status and priority", () => {
     expect(() =>
       normalizeCaseFilterFormState(
-        { query: "", planId: "999", status: "", priority: "", tagsInput: "" },
+        { query: "", queryTarget: "id-summary", planId: "999", status: "", priority: "", tagsInput: "" },
         options
       )
     ).toThrow(/Plan/);
     expect(() =>
       normalizeCaseFilterFormState(
-        { query: "", planId: "", status: "UNKNOWN", priority: "", tagsInput: "" },
+        { query: "", queryTarget: "id-summary", planId: "", status: "UNKNOWN", priority: "", tagsInput: "" },
         options
       )
     ).toThrow(/Status/);
     expect(() =>
       normalizeCaseFilterFormState(
-        { query: "", planId: "", status: "", priority: "P9", tagsInput: "" },
+        { query: "", queryTarget: "id-summary", planId: "", status: "", priority: "P9", tagsInput: "" },
         options
       )
     ).toThrow(/Priority/);

@@ -7,7 +7,8 @@ import {
   KiwiCaseHistoryEntry,
   KiwiExecutionStatus,
   KiwiTestRun,
-  KiwiPlan
+  KiwiPlan,
+  KiwiTemplate
 } from "../types";
 
 export interface MockCaseAttachmentRecord extends KiwiCaseAttachment {
@@ -23,6 +24,7 @@ export interface MockFailureModes {
   notFoundCaseIds?: number[];
   validation?: boolean;
   connection?: boolean;
+  templates?: boolean;
 }
 
 export interface MockAuthConfig {
@@ -37,6 +39,7 @@ export interface MockState {
   cases: Record<string, KiwiCase>;
   attachments: Record<string, MockCaseAttachmentRecord[]>;
   histories: Record<string, KiwiCaseHistoryEntry[]>;
+  templates?: KiwiTemplate[];
   buildsByPlan?: Record<string, KiwiBuildOption[]>;
   testRuns?: Record<string, KiwiTestRun>;
   executions?: Record<string, KiwiCaseExecution>;

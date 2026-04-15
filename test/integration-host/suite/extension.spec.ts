@@ -62,13 +62,32 @@ describe("extension host", () => {
     });
     await harness.seedPlanCases(100, [501, 502]);
     await harness.seedPlanCases(200, [601]);
+    await harness.seedCaseTemplates([
+      {
+        id: 10,
+        name: "Regression Template",
+        text: "# Template Purpose\n\nUse this body from Kiwi template."
+      }
+    ]);
     await harness.seedCaseHistory(501, [
+      {
+        historyId: 11,
+        historyDate: "2026-04-06T00:00:00.000Z",
+        historyType: "~",
+        historyChangeReason: "latest body",
+        text: "# Login works\n\nOne-step newer body."
+      },
       {
         historyId: 10,
         historyDate: "2026-04-05T00:00:00.000Z",
         historyType: "~",
         historyChangeReason: "initial body",
         text: "# Login works\n\nHistorical body."
+      },
+      {
+        historyDate: "2026-04-04T00:00:00.000Z",
+        historyType: "+",
+        historyChangeReason: "created"
       }
     ]);
     await harness.seedCaseHistory(502, [
@@ -149,7 +168,7 @@ describe("extension host", () => {
       harness.baseUrl,
       vscode.ConfigurationTarget.Global
     );
-    const extension = vscode.extensions.getExtension("local.kiwifs");
+    const extension = getKiwifsExtension();
     assert.ok(extension);
     await extension.activate();
   });
@@ -192,7 +211,7 @@ describe("extension host", () => {
       assert.ok((byId?.opened ?? "").includes("Login"));
 
       const bySummary = await vscode.commands.executeCommand<{
-        items: Array<{ caseId: number; label: string }>;
+        items: Array<{ caseId: number; label: string; itemType: string }>;
         opened?: string;
       }>("kiwi.__test.searchCases", "password", 502);
       assert.equal(bySummary?.items[0]?.caseId, 502);
@@ -204,6 +223,14 @@ describe("extension host", () => {
         /Password reset text/
       );
       assert.match(opened.getText(), /Password reset text/);
+
+      const byBody = await vscode.commands.executeCommand<{
+        items: Array<{ caseId: number; label: string; detail: string; itemType: string }>;
+        opened?: string;
+      }>("kiwi.__test.searchCases", "body:reset text", 502);
+      assert.equal(byBody?.items[0]?.caseId, 502);
+      assert.match(byBody?.items[0]?.detail ?? "", /reset text/);
+      assert.ok((byBody?.opened ?? "").includes("502"));
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     }
@@ -239,10 +266,12 @@ describe("extension host", () => {
 
     try {
       const title = await vscode.commands.executeCommand<string>("kiwi.__test.filterCases");
-      assert.equal(title, "テストケースをフィルタ");
+      assert.equal(title, "テストケースを探す");
+      const html = await vscode.commands.executeCommand<string>("kiwi.__test.getCaseFilterHtml");
+      assert.match(html ?? "", /<h1>テストケースを探す<\/h1>/);
 
       const initialState = await vscode.commands.executeCommand<{
-        formState: { query: string; planId: string; status: string; priority: string; tagsInput: string };
+        formState: { query: string; queryTarget: string; planId: string; status: string; priority: string; tagsInput: string };
         options: {
           plans: Array<{ id: number; name: string }>;
           statuses: string[];
@@ -266,6 +295,7 @@ describe("extension host", () => {
         }>
       >("kiwi.__test.submitCaseFilter", {
         query: "",
+        queryTarget: "id-summary",
         planId: "100",
         status: "CONFIRMED",
         priority: "P1",
@@ -276,20 +306,118 @@ describe("extension host", () => {
       assert.equal(results?.[0]?.status, "CONFIRMED");
       assert.deepEqual(results?.[0]?.tags, ["smoke"]);
 
+      const bodyResults = await vscode.commands.executeCommand<
+        Array<{
+          caseRef: { id: number; summary: string };
+          textSnippet?: string;
+        }>
+      >("kiwi.__test.submitCaseFilter", {
+        query: "reset text",
+        queryTarget: "body",
+        planId: "",
+        status: "",
+        priority: "",
+        tagsInput: ""
+      });
+      assert.equal(bodyResults?.length, 1);
+      assert.equal(bodyResults?.[0]?.caseRef.id, 502);
+      assert.match(bodyResults?.[0]?.textSnippet ?? "", /reset text/);
+
       const opened = await vscode.commands.executeCommand<string>(
         "kiwi.__test.openCaseFilterResult",
-        501
+        502
       );
-      assert.ok(opened?.includes("501"));
+      assert.ok(opened?.includes("502"));
       await waitForDocumentContent(
-        vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md"),
-        /Login succeeds/
+        vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/502 - Password reset works.md"),
+        /Password reset text/
       );
+
+      await harness.seedCaseDocument({
+        id: 511,
+        planId: 100,
+        summary: "Bulk target one",
+        priority: "P1",
+        category: "Functional",
+        status: "CONFIRMED",
+        components: [],
+        tags: ["smoke"],
+        notes: "",
+        text: "Bulk target one"
+      });
+      await harness.seedCaseDocument({
+        id: 512,
+        planId: 100,
+        summary: "Bulk target two",
+        priority: "P2",
+        category: "Functional",
+        status: "CONFIRMED",
+        components: [],
+        tags: ["regression"],
+        notes: "",
+        text: "Bulk target two"
+      });
+      await harness.seedPlanCases(100, [501, 502, 511, 512]);
+
+      const bulkResults = await vscode.commands.executeCommand<
+        Array<{ caseRef: { id: number } }>
+      >("kiwi.__test.submitCaseFilter", {
+        query: "Bulk target",
+        queryTarget: "id-summary",
+        planId: "100",
+        status: "",
+        priority: "",
+        tagsInput: ""
+      });
+      assert.deepEqual(bulkResults?.map((item) => item.caseRef.id), [511, 512]);
+
+      const toggled = await vscode.commands.executeCommand<{
+        selectedCaseIds: number[];
+        selectedCount: number;
+      }>("kiwi.__test.toggleCaseFilterSelection", 511, true);
+      assert.deepEqual(toggled?.selectedCaseIds, [511]);
+      assert.equal(toggled?.selectedCount, 1);
+
+      await vscode.commands.executeCommand("kiwi.__test.toggleCaseFilterSelection", 512, true);
+      const afterMultiSelect = await vscode.commands.executeCommand<{
+        selectedCaseIds: number[];
+        selectedCount: number;
+      }>("kiwi.__test.getCaseFilterState");
+      assert.deepEqual(afterMultiSelect?.selectedCaseIds, [511, 512]);
+      assert.equal(afterMultiSelect?.selectedCount, 2);
+
+      const bulkStatus = await vscode.commands.executeCommand<{ updated: number; failed: number }>(
+        "kiwi.__test.bulkUpdateCaseFilterStatus",
+        [511, 512],
+        "IDLE"
+      );
+      assert.deepEqual(bulkStatus, { updated: 2, failed: 0 });
+
+      const bulkAddTags = await vscode.commands.executeCommand<{ updated: number; failed: number }>(
+        "kiwi.__test.bulkAddCaseFilterTags",
+        [511, 512],
+        "bulk, smoke"
+      );
+      assert.deepEqual(bulkAddTags, { updated: 2, failed: 0 });
+
+      const bulkRemoveTags = await vscode.commands.executeCommand<{ updated: number; failed: number }>(
+        "kiwi.__test.bulkRemoveCaseFilterTags",
+        [511, 512],
+        "smoke"
+      );
+      assert.deepEqual(bulkRemoveTags, { updated: 2, failed: 0 });
+
+      const bulkState = await harness.readState();
+      assert.equal(bulkState.cases["511"]?.status, "IDLE");
+      assert.equal(bulkState.cases["512"]?.status, "IDLE");
+      assert.deepEqual(bulkState.cases["511"]?.tags, ["bulk"]);
+      assert.deepEqual(bulkState.cases["512"]?.tags, ["bulk", "regression"]);
 
       const emptyResults = await vscode.commands.executeCommand<
         Array<{ caseRef: { id: number } }>
       >("kiwi.__test.submitCaseFilter", {
         query: "does-not-exist",
+        queryTarget: "id-summary",
         planId: "",
         status: "",
         priority: "",
@@ -301,6 +429,7 @@ describe("extension host", () => {
         async () => {
           await vscode.commands.executeCommand("kiwi.__test.submitCaseFilter", {
             query: "",
+            queryTarget: "id-summary",
             planId: "",
             status: "",
             priority: "",
@@ -309,6 +438,7 @@ describe("extension host", () => {
         },
         /検索条件を入力してください/
       );
+      await harness.seedPlanCases(100, [501, 502]);
     } finally {
       await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     }
@@ -400,6 +530,195 @@ describe("extension host", () => {
     }
   });
 
+  it("deletes a case from case context and closes opened case documents", async function () {
+    this.timeout(20000);
+
+    const uri = vscode.Uri.parse(
+      "kiwi:/plans/100 - Regression/cases/501 - Login works.md"
+    );
+    try {
+      const document = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(document);
+      await vscode.commands.executeCommand("type", { text: "\nLocal draft before delete." });
+      assert.equal(document.isDirty, true);
+
+      const cancelled = await vscode.commands.executeCommand<{
+        caseId: number;
+        cancelled: boolean;
+      }>("kiwi.__test.deleteCase", {
+        confirmed: false,
+        targetPlanId: 100,
+        targetCaseId: 501,
+        targetCaseSummary: "Login works"
+      });
+      assert.equal(cancelled?.cancelled, true);
+      let state = await harness.readState();
+      assert.ok(state.cases["501"]);
+      assert.equal(hasTabForUri(uri.toString()), true);
+
+      const result = await vscode.commands.executeCommand<{
+        caseId: number;
+        summary: string;
+      }>("kiwi.__test.deleteCase", {
+        confirmed: true,
+        targetPlanId: 100,
+        targetCaseId: 501,
+        targetCaseSummary: "Login works"
+      });
+      assert.equal(result?.caseId, 501);
+      assert.equal(result?.summary, "Login works");
+
+      state = await harness.readState();
+      assert.equal(state.cases["501"], undefined);
+      assert.equal(state.planCases["100"]?.includes(501), false);
+      assert.equal(state.histories["501"], undefined);
+      assert.equal(state.attachments["501"], undefined);
+      await waitForTabState(uri.toString(), false);
+
+      const snapshot = await vscode.commands.executeCommand<KiwiPlansTreeSnapshotNode[]>(
+        "kiwi.__test.getPlanTreeSnapshot"
+      );
+      assert.ok(
+        !snapshot?.[0]?.children?.some((node) => node.label === "501 - Login works.md")
+      );
+    } finally {
+      await harness.seedCaseDocument({
+        id: 501,
+        planId: 100,
+        summary: "Login works",
+        priority: "P1",
+        category: "Functional",
+        status: "CONFIRMED",
+        components: ["Auth"],
+        tags: ["smoke"],
+        notes: "None.",
+        text: "# Purpose\n\nLogin succeeds.\n\n# Steps\n\n1. Open login page"
+      });
+      await harness.seedPlanCases(100, [501, 502, 601]);
+      await harness.seedCaseHistory(501, [
+        {
+          historyId: 11,
+          historyDate: "2026-04-06T00:00:00.000Z",
+          historyType: "~",
+          historyChangeReason: "latest body",
+          text: "# Login works\n\nOne-step newer body."
+        },
+        {
+          historyId: 10,
+          historyDate: "2026-04-05T00:00:00.000Z",
+          historyType: "~",
+          historyChangeReason: "initial body",
+          text: "# Login works\n\nHistorical body."
+        }
+      ]);
+      await harness.seedCaseAttachments(501, [
+        {
+          filename: "attachment",
+          size: 4,
+          downloadUrl: `${harness.baseUrl.replace(/\/$/, "")}/attachments/501/diagram.svg`,
+          contentType: "image/svg+xml",
+          contentFilename: "diagram.svg",
+          bodyBase64: Buffer.from("<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>", "utf8").toString("base64")
+        },
+        {
+          filename: "existing.txt",
+          size: 5,
+          downloadUrl: `${harness.baseUrl.replace(/\/$/, "")}/attachments/501/existing.txt`,
+          contentType: "text/plain; charset=utf-8",
+          bodyBase64: Buffer.from("hello", "utf8").toString("base64")
+        }
+      ]);
+      await harness.seedExecutions([
+        {
+          id: 9001,
+          runId: 300,
+          runSummary: "Regression run",
+          caseId: 501,
+          caseSummary: "Login works",
+          build: "2026.04",
+          status: "IDLE",
+          comment: ""
+        },
+        {
+          id: 9002,
+          runId: 301,
+          runSummary: "Nightly run",
+          caseId: 501,
+          caseSummary: "Login works",
+          build: "2026.04-nightly",
+          status: "FAILED",
+          comment: "Known issue"
+        }
+      ]);
+      await vscode.commands.executeCommand("kiwi.refreshPlans");
+      await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    }
+  });
+
+  it("orders case remove and delete commands together in the manifest", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+    const packageJsonPath = path.join(extension!.extensionPath, "package.json");
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+      contributes?: { menus?: { ["view/item/context"]?: Array<{ command: string; when?: string; group?: string }> } };
+    };
+
+    const caseMenus = (packageJson.contributes?.menus?.["view/item/context"] ?? []).filter(
+      (item) => item.when === "view == kiwiPlans && viewItem == caseDocument"
+    );
+    const removeIndex = caseMenus.findIndex((item) => item.command === "kiwi.removeCaseFromPlan");
+    const deleteIndex = caseMenus.findIndex((item) => item.command === "kiwi.deleteCase");
+
+    assert.notEqual(removeIndex, -1);
+    assert.notEqual(deleteIndex, -1);
+    assert.equal(deleteIndex, removeIndex + 1);
+  });
+
+  it("contributes plan context commands with this-plan wording", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+    const packageJsonPath = path.join(extension!.extensionPath, "package.json");
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+      contributes?: {
+        commands?: Array<{ command: string; title?: string }>;
+        menus?: { ["view/item/context"]?: Array<{ command: string; when?: string; group?: string }> };
+      };
+    };
+
+    const commands = packageJson.contributes?.commands ?? [];
+    const viewItemContext = packageJson.contributes?.menus?.["view/item/context"] ?? [];
+    const planMenus = viewItemContext.filter(
+      (item) => item.when === "view == kiwiPlans && viewItem == plan"
+    );
+
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.showPlanInfo")?.title,
+      "テスト計画の情報を表示"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.openPlanInBrowser")?.title,
+      "テスト計画をブラウザで表示"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.createCase")?.title,
+      "テスト計画に新規テストケースを作成"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.addExistingCaseToPlan")?.title,
+      "テスト計画に既存テストケースを追加"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.removeCaseFromPlanFromPlan")?.title,
+      "テスト計画からテストケースを外す"
+    );
+    assert.notEqual(
+      planMenus.findIndex((item) => item.command === "kiwi.removeCaseFromPlanFromPlan"),
+      -1
+    );
+  });
+
   it("configures base url username and password through dedicated commands", async function () {
     this.timeout(20000);
     const originalBaseUrl = harness.baseUrl;
@@ -451,7 +770,7 @@ describe("extension host", () => {
 
   it("contributes welcome content for setup and open-root states", async function () {
     this.timeout(20000);
-    const extension = vscode.extensions.getExtension("local.kiwifs");
+    const extension = getKiwifsExtension();
     assert.ok(extension);
     const viewsWelcome = (extension.packageJSON.contributes?.viewsWelcome ?? []) as Array<{
       view: string;
@@ -465,17 +784,17 @@ describe("extension host", () => {
     assert.ok(
       kiwiWelcome.some(
         (item) =>
-          item.contents.includes("Configure Base URL") &&
-          item.contents.includes("Configure Username") &&
-          item.contents.includes("Configure Password")
+          item.contents.includes("ベース URL を設定") &&
+          item.contents.includes("ユーザー名を設定") &&
+          item.contents.includes("パスワードを設定")
       )
     );
-    assert.ok(kiwiWelcome.some((item) => item.contents.includes("Open Root")));
+    assert.ok(kiwiWelcome.some((item) => item.contents.includes("ルートを開く")));
   });
 
   it("gates runtime log commands behind debug-f5 context keys", async function () {
     this.timeout(20000);
-    const extension = vscode.extensions.getExtension("local.kiwifs");
+    const extension = getKiwifsExtension();
     assert.ok(extension);
 
     const menus = extension.packageJSON.contributes?.menus ?? {};
@@ -497,6 +816,79 @@ describe("extension host", () => {
     assert.equal(revealViewTitle?.when, "view == kiwiPlans && kiwi.runtimeLogsEnabled");
     assert.equal(clearPalette?.when, "kiwi.runtimeLogsEnabled");
     assert.equal(revealPalette?.when, "kiwi.runtimeLogsEnabled");
+  });
+
+  it("contributes filter-first case actions in the kiwi plans view title", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+
+    const menus = extension.packageJSON.contributes?.menus ?? {};
+    const viewTitle = (menus["view/title"] ?? []) as Array<{
+      command: string;
+      when?: string;
+    }>;
+
+    const kiwiPlansItems = viewTitle
+      .filter((item) => item.when === "view == kiwiPlans")
+      .map((item) => item.command);
+
+    assert.deepEqual(kiwiPlansItems.slice(0, 4), [
+      "kiwi.filterCases",
+      "kiwi.openTestRunDashboard",
+      "kiwi.filterTestRuns",
+      "kiwi.refreshPlans"
+    ]);
+    assert.ok(!kiwiPlansItems.includes("kiwi.searchCases"));
+
+    const commands = (extension.packageJSON.contributes?.commands ?? []) as Array<{
+      command: string;
+      title: string;
+      icon?: string;
+    }>;
+    assert.equal(commands.find((item) => item.command === "kiwi.filterCases")?.title, "Kiwi: テストケースを探す");
+    assert.equal(commands.find((item) => item.command === "kiwi.filterTestRuns")?.title, "Kiwi: テスト実行を探す");
+    assert.equal(commands.find((item) => item.command === "kiwi.filterCases")?.icon, "$(search)");
+    assert.equal(commands.find((item) => item.command === "kiwi.filterTestRuns")?.icon, "$(search)");
+
+    const commandPalette = (menus.commandPalette ?? []) as Array<{
+      command: string;
+      when?: string;
+    }>;
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.searchCases")?.when, "false");
+  });
+
+  it("contributes manual case freshness check to case context and editor title", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+
+    const commands = (extension.packageJSON.contributes?.commands ?? []) as Array<{
+      command: string;
+      title: string;
+    }>;
+    const menus = extension.packageJSON.contributes?.menus ?? {};
+    const viewItemContext = (menus["view/item/context"] ?? []) as Array<{
+      command: string;
+      when?: string;
+    }>;
+    const editorTitle = (menus["editor/title"] ?? []) as Array<{
+      command: string;
+      when?: string;
+    }>;
+
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.checkCaseFreshness")?.title,
+      "テストケースの最新状態を確認"
+    );
+    assert.equal(
+      viewItemContext.find((item) => item.command === "kiwi.checkCaseFreshness")?.when,
+      "view == kiwiPlans && viewItem == caseDocument"
+    );
+    assert.equal(
+      editorTitle.find((item) => item.command === "kiwi.checkCaseFreshness")?.when,
+      "resourceScheme == kiwi && resourcePath =~ /\\/cases\\/.+\\.md$/"
+    );
   });
 
   it("uses .env fallback only in debug-f5 mode", async function () {
@@ -668,17 +1060,19 @@ describe("extension host", () => {
     assert.match(document.getText(), /\| status \| CONFIRMED \|/);
     assert.match(document.getText(), /\| components \| Auth \|/);
     assert.match(document.getText(), /\| tags \| smoke \|/);
-    assert.match(document.getText(), /\| versionToken \| history_id:11 \|/);
+    assert.match(document.getText(), /\| versionToken \| history_id:\d+ \|/);
   });
 
   it("creates a new case from the plan metadata editor flow", async function () {
     this.timeout(20000);
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.createCase");
-    assert.equal(title, "新規テストケースを作成: Regression");
+    assert.equal(title, "テスト計画に新規テストケースを作成: Regression");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
       options: { statuses: string[]; priorities: string[] };
+      templateOptions: Array<{ id: string; name: string; text: string; isDefault: boolean }>;
+      selectedTemplateId: string;
       actionLabel: string;
       mode: string;
     }>("kiwi.__test.getMetadataEditorState", 100, "create");
@@ -687,6 +1081,9 @@ describe("extension host", () => {
     assert.equal(initialState?.actionLabel, "作成");
     assert.ok(initialState?.options.statuses.includes("CONFIRMED"));
     assert.ok(initialState?.options.priorities.includes("P1"));
+    assert.equal(initialState?.templateOptions[0]?.name, "既定テンプレート");
+    assert.equal(initialState?.templateOptions[1]?.name, "Regression Template");
+    assert.equal(initialState?.selectedTemplateId, "default");
 
     const saveResult = await vscode.commands.executeCommand<{
       kind: string;
@@ -697,7 +1094,7 @@ describe("extension host", () => {
       status: "CONFIRMED",
       priority: "P1",
       tagsInput: "smoke"
-    }, 100, "create");
+    }, 100, "create", "10");
     assert.equal(saveResult?.kind, "created");
     assert.equal(saveResult?.mode, "create");
     assert.equal(saveResult?.createdCase.summary, "Created from panel");
@@ -713,12 +1110,13 @@ describe("extension host", () => {
     const createdUri = vscode.Uri.parse(
       `kiwi:/plans/100 - Regression/cases/${createdCaseId} - Created from panel.md`
     );
-    const opened = await waitForDocumentContent(createdUri, /# Purpose/);
-    assert.match(opened.getText(), /# Expected Result/);
+    const opened = await waitForDocumentContent(createdUri, /# Template Purpose/);
+    assert.match(opened.getText(), /Use this body from Kiwi template/);
     const state = await harness.readState();
     assert.equal(state.cases[String(createdCaseId)]?.summary, "Created from panel");
     assert.deepEqual(state.cases[String(createdCaseId)]?.components, []);
     assert.equal(state.cases[String(createdCaseId)]?.notes, "");
+    assert.equal(state.cases[String(createdCaseId)]?.text, "# Template Purpose\n\nUse this body from Kiwi template.");
   });
 
   it("duplicates a case and opens the created body document", async function () {
@@ -728,16 +1126,18 @@ describe("extension host", () => {
     assert.ok(sourceText);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.duplicateCase");
-    assert.equal(title, "このテストケースを複製: Login works");
+    assert.equal(title, "テストケースを複製: Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
+      templateOptions: Array<{ id: string }>;
       actionLabel: string;
       mode: string;
     }>("kiwi.__test.getMetadataEditorState", 501, "duplicate");
     assert.equal(initialState?.formState.summary, "Login works");
     assert.equal(initialState?.mode, "duplicate");
     assert.equal(initialState?.actionLabel, "複製して作成");
+    assert.equal(initialState?.templateOptions.length, 0);
 
     const saveResult = await vscode.commands.executeCommand<{
       kind: string;
@@ -777,14 +1177,14 @@ describe("extension host", () => {
     assert.equal(duplicatedState?.text, sourceText);
   });
 
-  it("records a case execution result through the Webview form", async function () {
+  it("updates one case execution result through the Webview form", async function () {
     this.timeout(20000);
 
     const title = await vscode.commands.executeCommand<string>(
       "kiwi.__test.recordCaseExecutionResult",
       9001
     );
-    assert.equal(title, "実行結果を記録: 501 - Login works");
+    assert.equal(title, "テストケースの実行結果を更新: 501 - Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { status: string; comment: string };
@@ -867,6 +1267,107 @@ describe("extension host", () => {
     assert.ok(latestLog);
     const logContent = await readFile(path.join(logDirectory!, latestLog!.name), "utf8");
     assert.match(logContent, /testrun\.open\.succeeded/);
+  });
+
+  it("ignores tree target objects when opening the test run dashboard", async function () {
+    this.timeout(20000);
+
+    const caseTarget = {
+      kind: "case",
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+    const planTarget = {
+      kind: "plan",
+      plan: { id: 100, name: "Regression" }
+    };
+
+    const caseTitle = await vscode.commands.executeCommand<string>("kiwi.openTestRunDashboard", caseTarget);
+    assert.equal(caseTitle, "テスト実行ダッシュボード");
+    const caseState = await vscode.commands.executeCommand<{
+      selectedRunId: string;
+      rows: Array<{ executionId: number }>;
+    }>("kiwi.__test.getTestRunDashboardState");
+    assert.notEqual(caseState, undefined);
+    assert.doesNotMatch(caseState?.selectedRunId ?? "", /^\[object Object\]$/);
+
+    const planTitle = await vscode.commands.executeCommand<string>("kiwi.openTestRunDashboard", planTarget);
+    assert.equal(planTitle, "テスト実行ダッシュボード");
+    const planState = await vscode.commands.executeCommand<{
+      selectedRunId: string;
+      rows: Array<{ executionId: number }>;
+    }>("kiwi.__test.getTestRunDashboardState");
+    assert.notEqual(planState, undefined);
+    assert.doesNotMatch(planState?.selectedRunId ?? "", /^\[object Object\]$/);
+
+    const logDirectory = await vscode.commands.executeCommand<string>(
+      "kiwi.__test.getResolvedRuntimeLogDirectory"
+    );
+    assert.ok(logDirectory);
+    const latestLog = (
+      await Promise.all(
+        (await vscode.workspace.fs.readDirectory(vscode.Uri.file(logDirectory!)))
+          .filter(([name, type]) => type === vscode.FileType.File && name.endsWith(".jsonl"))
+          .map(async ([name]) => ({
+            name,
+            stat: await vscode.workspace.fs.stat(vscode.Uri.file(path.join(logDirectory!, name)))
+          }))
+      )
+    ).sort((left, right) => right.stat.mtime - left.stat.mtime)[0];
+    assert.ok(latestLog);
+    const logContent = await readFile(path.join(logDirectory!, latestLog!.name), "utf8");
+    assert.doesNotMatch(logContent, /kiwi:\/testruns\/\[object Object\]/);
+  });
+
+  it("filters test runs in a Webview and opens a selected run in the dashboard", async function () {
+    this.timeout(20000);
+
+    const title = await vscode.commands.executeCommand<string>("kiwi.__test.filterTestRuns");
+    assert.equal(title, "テスト実行を探す");
+
+    const html = await vscode.commands.executeCommand<string>("kiwi.__test.getTestRunFilterHtml");
+    assert.match(html ?? "", /<h1>テスト実行を探す<\/h1>/);
+    assert.match(html ?? "", /<form id="form">/);
+    assert.match(html ?? "", /type="submit">検索<\/button>/);
+
+    const initialState = await vscode.commands.executeCommand<{
+      formState: { query: string; planId: string; build: string };
+      options: {
+        plans: Array<{ value: string; label: string }>;
+        buildOptionsByPlan: Record<string, string[]>;
+      };
+      results: Array<{ id: number }>;
+    }>("kiwi.__test.getTestRunFilterState");
+    assert.equal(initialState?.formState.query, "");
+    assert.ok(initialState?.options.plans.some((plan) => plan.value === "100"));
+    assert.deepEqual(initialState?.options.buildOptionsByPlan["100"], ["2026.04"]);
+    assert.deepEqual(initialState?.options.buildOptionsByPlan["200"], ["2026.04-nightly"]);
+    assert.deepEqual(initialState?.results, []);
+
+    const results = await vscode.commands.executeCommand<
+      Array<{ id: number; summary: string; build: string; planId?: number; planName: string }>
+    >("kiwi.__test.submitTestRunFilter", {
+      query: "Regression",
+      planId: "100",
+      build: "2026.04"
+    });
+    assert.deepEqual(results?.map((item) => item.id), [300]);
+    assert.equal(results?.[0]?.summary, "Regression run");
+    assert.equal(results?.[0]?.planId, 100);
+    assert.equal(results?.[0]?.planName, "Regression");
+
+    const opened = await vscode.commands.executeCommand<number | undefined>(
+      "kiwi.__test.openTestRunFilterResult",
+      300
+    );
+    assert.equal(opened, 300);
+
+    const dashboardState = await vscode.commands.executeCommand<{
+      selectedRunId: string;
+      rows: Array<{ executionId: number; caseId: number }>;
+    }>("kiwi.__test.getTestRunDashboardState");
+    assert.equal(dashboardState?.selectedRunId, "300");
+    assert.deepEqual(dashboardState?.rows.map((row) => row.executionId), [9001]);
   });
 
   it("creates runs, adds cases, and bulk updates selected dashboard rows", async function () {
@@ -997,7 +1498,7 @@ describe("extension host", () => {
       100,
       "Regression"
     );
-    assert.equal(title, "複数のテスト実行を管理: 501 - Login works");
+    assert.equal(title, "テストケースの実行を管理: 501 - Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       plans: Array<{ id: number; name: string }>;
@@ -1114,7 +1615,7 @@ describe("extension host", () => {
     await vscode.window.showTextDocument(oldBodyDocument);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.editCaseMetadata");
-    assert.equal(title, "テストケースメタデータを編集: Login works");
+    assert.equal(title, "テストケースのメタデータを編集: Login works");
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
       options: { statuses: string[]; priorities: string[] };
@@ -1148,7 +1649,7 @@ describe("extension host", () => {
       title: string;
     }>("kiwi.__test.getMetadataEditorState");
     assert.equal(updatedState?.formState.summary, "Login updated");
-    assert.equal(updatedState?.title, "テストケースメタデータを編集: Login updated");
+    assert.equal(updatedState?.title, "テストケースのメタデータを編集: Login updated");
 
     const newBodyUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login updated.md");
     await waitForTabState(newBodyUri.toString(), true);
@@ -1339,13 +1840,32 @@ describe("extension host", () => {
     }>("kiwi.__test.showCaseHistoryDiff", 10);
 
     assert.ok(diffResult);
-    assert.equal(diffResult?.title, "Login works (History 10 ↔ Latest)");
+    assert.equal(diffResult?.title, "Login works (History 10 ↔ History 11)");
 
     const historyDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(diffResult!.historyUri));
     const latestDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(diffResult!.latestUri));
     assert.match(historyDocument.getText(), /Historical body\./);
     assert.doesNotMatch(latestDocument.getText(), /Historical body\./);
-    assert.match(latestDocument.getText(), /# Login succeeds\./);
+    assert.match(latestDocument.getText(), /One-step newer body\./);
+  });
+
+  it("opens a read-only case history list from a tree target", async function () {
+    this.timeout(20000);
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+
+    const uriString = await vscode.commands.executeCommand<string>("kiwi.__test.showCaseHistory");
+
+    assert.ok(uriString);
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.parse(uriString!));
+    assert.equal(document.uri.scheme, "kiwi-history");
+    assert.match(document.getText(), /# History: Login works/);
+    assert.doesNotMatch(document.getText(), /\| history_id \| history_date \| history_type \| history_change_reason \|/);
+    assert.match(document.getText(), /## History 11/);
+    assert.match(document.getText(), /- date: 2026-04-06T00:00:00.000Z/);
+    assert.match(document.getText(), /- reason: latest body/);
+    assert.match(document.getText(), /---/);
+    assert.match(document.getText(), /## History 10/);
+    assert.doesNotMatch(document.getText(), /\| history_id \|/);
   });
 
   it("resolves case browser urls from tree targets and active editors", async function () {
@@ -1563,6 +2083,51 @@ describe("extension host", () => {
     const statAfterRemoteChange = await vscode.workspace.fs.stat(uri);
     assert.equal(statAfterRemoteChange.mtime, initialStat.mtime);
     assert.equal(document.getText(), initialText);
+
+    const freshness = await vscode.commands.executeCommand<{
+      status: string;
+      caseId: number;
+    }>("kiwi.__test.checkCaseFreshness");
+    assert.equal(freshness?.status, "stale");
+    assert.equal(freshness?.caseId, 501);
+
+    const snapshot = await vscode.commands.executeCommand<KiwiPlansTreeSnapshotNode[]>(
+      "kiwi.__test.getPlanTreeSnapshot"
+    );
+    const caseNode = snapshot?.[0]?.children?.find((node) => node.label === "501 - Login works.md");
+    assert.equal(caseNode?.description, "remote changed");
+
+    await vscode.commands.executeCommand("kiwi.refreshPlans");
+  });
+
+  it("auto-checks freshness when the active kiwi editor changes", async function () {
+    this.timeout(20000);
+    const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
+    const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
+    await vscode.window.showTextDocument(kiwiDocument);
+
+    await harness.simulateRemoteChange(501, (current) => ({
+      ...current,
+      text: `${current.text}\n\nAuto-checked remote change.`
+    }));
+
+    const scratch = await vscode.workspace.openTextDocument({
+      language: "markdown",
+      content: "scratch"
+    });
+    await vscode.window.showTextDocument(scratch, { preview: false });
+    await vscode.window.showTextDocument(kiwiDocument, { preview: false });
+
+    await waitForTreeCaseDescription("501 - Login works.md", "remote changed");
+
+    const refreshed = await vscode.commands.executeCommand<boolean>("kiwi.refreshCaseDocument");
+    assert.equal(refreshed, true);
+
+    await vscode.window.showTextDocument(scratch, { preview: false });
+    await vscode.window.showTextDocument(kiwiDocument, { preview: false });
+
+    await waitForTreeCaseDescription("501 - Login works.md", undefined);
+    assert.match(kiwiDocument.getText(), /Auto-checked remote change\./);
   });
 
   it("refreshes active case documents only on explicit command", async function () {
@@ -1754,6 +2319,37 @@ async function waitForDocumentContent(
   }
 
   throw new Error(`Timed out waiting for document content: ${uri.toString()}`);
+}
+
+function getKiwifsExtension(): vscode.Extension<unknown> | undefined {
+  return (
+    vscode.extensions.getExtension("yyamamot.vscode-kiwifs") ??
+    vscode.extensions.getExtension("local.kiwifs")
+  );
+}
+
+async function waitForTreeCaseDescription(
+  label: string,
+  description: string | undefined,
+  retries = 20
+): Promise<void> {
+  for (let index = 0; index < retries; index += 1) {
+    const snapshot = await vscode.commands.executeCommand<KiwiPlansTreeSnapshotNode[]>(
+      "kiwi.__test.getPlanTreeSnapshot"
+    );
+    const node = snapshot
+      ?.flatMap((plan) => plan.children ?? [])
+      .find((item) => item.label === label);
+    if (node?.description === description) {
+      return;
+    }
+    if (!node && description === undefined) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(`Timed out waiting for tree description ${description ?? "<none>"} on ${label}`);
 }
 
 async function waitForTabState(uriString: string, expected: boolean, retries = 20): Promise<boolean> {

@@ -27,7 +27,7 @@ export async function resolveKiwiConfig(
   if (!baseUrl || !username || !password) {
     throw new KiwiError(
       "AuthenticationFailed",
-      "Kiwi configuration is incomplete. Configure Base URL, Username, and Password."
+      "Kiwi configuration is incomplete. Set the base URL, username, and password."
     );
   }
 

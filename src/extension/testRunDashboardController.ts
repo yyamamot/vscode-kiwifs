@@ -77,9 +77,17 @@ export class TestRunDashboardController implements vscode.Disposable {
   }
 
   async open(): Promise<vscode.WebviewPanel | undefined> {
+    return this.openRun();
+  }
+
+  async openRun(runId?: number): Promise<vscode.WebviewPanel | undefined> {
     if (this.session) {
       this.session.panel.reveal(this.session.panel.viewColumn, false);
-      await this.reload(this.session);
+      if (runId !== undefined) {
+        await this.openExistingRun(this.session, runId);
+      } else {
+        await this.reload(this.session);
+      }
       return this.session.panel;
     }
 
@@ -111,6 +119,9 @@ export class TestRunDashboardController implements vscode.Disposable {
     });
     this.disposables.push(messageDisposable, disposeDisposable);
     this.pushState(session);
+    if (runId !== undefined) {
+      await this.openExistingRun(session, runId);
+    }
     return panel;
   }
 

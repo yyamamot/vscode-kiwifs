@@ -184,6 +184,70 @@ describe("mockAdapter", () => {
     await expect(adapter.listPriorities(config)).resolves.toEqual(["P1", "P2", "P3"]);
   });
 
+  it("lists seeded case templates", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedCaseTemplates([
+      { id: 10, name: "Regression Template", text: "# Regression\n\n## Steps" }
+    ]);
+    const adapter = new MockFileAdapter(harness.statePath);
+    const config = {
+      baseUrl: harness.baseUrl,
+      username: "admin",
+      password: "admin"
+    };
+
+    await expect(adapter.listCaseTemplates(config)).resolves.toEqual([
+      { id: 10, name: "Regression Template", text: "# Regression\n\n## Steps" }
+    ]);
+    await harness.setFailureMode("templates", true);
+    await expect(adapter.listCaseTemplates(config)).rejects.toThrow(/Template API/);
+  });
+
+  it("searches cases by summary and body text", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Open login page and submit credentials"
+    });
+    await harness.seedCaseDocument({
+      id: 502,
+      planId: 100,
+      summary: "Password reset works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Reset via email"
+    });
+    const adapter = new MockFileAdapter(harness.statePath);
+    const config = {
+      baseUrl: harness.baseUrl,
+      username: "admin",
+      password: "admin"
+    };
+
+    await expect(adapter.searchCases(config, { query: "login", mode: "id-summary" })).resolves.toEqual([
+      { caseId: 501, summary: "Login works", textSnippet: undefined }
+    ]);
+    await expect(adapter.searchCases(config, { query: "credentials", mode: "body" })).resolves.toEqual([
+      {
+        caseId: 501,
+        summary: "Login works",
+        textSnippet: "Open login page and submit credentials"
+      }
+    ]);
+  });
+
   it("creates a new case and links it to the plan", async () => {
     const harness = await createKiwiHarness();
     await harness.seedPlans([{ id: 100, name: "Regression" }]);
@@ -321,6 +385,71 @@ describe("mockAdapter", () => {
     await expect(adapter.removeCaseFromPlan(config, 100, 501)).rejects.toThrow(/Case 501/);
   });
 
+  it("deletes a case and removes linked state", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([
+      { id: 100, name: "Regression" },
+      { id: 200, name: "Secondary" }
+    ]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: ["Auth"],
+      tags: ["smoke"],
+      notes: "None.",
+      text: "# Login succeeds.\n\n1. Open login page"
+    });
+    await harness.seedPlanCases(100, [501]);
+    await harness.seedPlanCases(200, [501]);
+    await harness.seedCaseHistory(501, [
+      {
+        historyId: 10,
+        historyDate: "2026-04-05T00:00:00.000Z"
+      }
+    ]);
+    await harness.seedCaseAttachments(501, [
+      {
+        filename: "existing.txt",
+        size: 5,
+        downloadUrl: `${harness.baseUrl.replace(/\/$/, "")}/attachments/501/existing.txt`,
+        bodyBase64: Buffer.from("hello", "utf8").toString("base64")
+      }
+    ]);
+    await harness.seedExecutions([
+      {
+        id: 9001,
+        runId: 300,
+        runSummary: "Regression run",
+        caseId: 501,
+        caseSummary: "Login works",
+        build: "2026.04",
+        status: "IDLE",
+        comment: ""
+      }
+    ]);
+
+    const adapter = new MockFileAdapter(harness.statePath);
+    const config = {
+      baseUrl: harness.baseUrl,
+      username: "admin",
+      password: "admin"
+    };
+
+    await adapter.deleteCase(config, 501);
+
+    const state = await harness.readState();
+    expect(state.cases["501"]).toBeUndefined();
+    expect(state.histories["501"]).toBeUndefined();
+    expect(state.attachments["501"]).toBeUndefined();
+    expect(state.planCases["100"]).toEqual([]);
+    expect(state.planCases["200"]).toEqual([]);
+    expect(state.executions?.["9001"]).toBeUndefined();
+  });
+
   it("lists and updates case execution results", async () => {
     const harness = await createKiwiHarness();
     await harness.seedPlans([{ id: 100, name: "Regression" }]);
@@ -391,6 +520,36 @@ describe("mockAdapter", () => {
     });
     expect(updated.status).toBe("PASSED");
     expect(updated.comment).toBe("Verified in VS Code");
+  });
+
+  it("searches test runs by query, plan, and build", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([
+      { id: 100, name: "Regression" },
+      { id: 200, name: "Secondary" }
+    ]);
+    await harness.seedTestRuns([
+      { id: 300, summary: "Regression run", build: "2026.04", planId: 100 },
+      { id: 301, summary: "Regression run", build: "2026.04-nightly", planId: 100 },
+      { id: 302, summary: "Secondary run", build: "2026.04-nightly", planId: 200 }
+    ]);
+
+    const adapter = new MockFileAdapter(harness.statePath);
+    const config = {
+      baseUrl: harness.baseUrl,
+      username: "admin",
+      password: "admin"
+    };
+
+    await expect(
+      adapter.searchTestRuns(config, {
+        query: "Regression",
+        planId: 100,
+        build: "2026.04"
+      })
+    ).resolves.toEqual([
+      { id: 300, summary: "Regression run", build: "2026.04", planId: 100, planName: "Regression" }
+    ]);
   });
 
   it("creates test runs and adds cases to them", async () => {

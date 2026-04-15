@@ -10,6 +10,8 @@ import {
   KiwiCaseBody,
   KiwiCaseExecution,
   KiwiCaseCreatePayload,
+  KiwiCaseSearchMode,
+  KiwiCaseSearchResult,
   KiwiBuildOption,
   KiwiCaseHistoryEntry,
   KiwiCaseHistoryVersion,
@@ -19,6 +21,7 @@ import {
   KiwiExecutionUpdatePatch,
   KiwiTestRun,
   KiwiTestRunCreatePayload,
+  KiwiTemplate,
   PlanCaseRef
 } from "../types";
 import { KiwiError, KiwiErrorCode } from "../domain/errors";
@@ -192,6 +195,39 @@ export class RealKiwiAdapter implements KiwiAdapter {
     });
   }
 
+  async listCaseTemplates(config: KiwiConfig): Promise<KiwiTemplate[]> {
+    return this.execute(config, async (session) => {
+      const records = await callArray(session, "Template.filter", [{}]);
+      return records.map(mapTemplateRecord).sort((left, right) => left.name.localeCompare(right.name));
+    });
+  }
+
+  async searchCases(
+    config: KiwiConfig,
+    input: { query: string; mode: KiwiCaseSearchMode }
+  ): Promise<KiwiCaseSearchResult[]> {
+    return this.execute(config, async (session) => {
+      const query = input.query.trim();
+      if (!query) {
+        return [];
+      }
+      if (input.mode === "body") {
+        const records = await callArray(session, "TestCase.filter", [{ text__icontains: query }]);
+        return records
+          .map((record) => mapCaseSearchRecord(record, input.mode, query))
+          .sort((left, right) => left.caseId - right.caseId);
+      }
+
+      const records = await callArray(session, "TestCase.filter", [{ summary__icontains: query }]);
+      if (/^\d+$/.test(query)) {
+        records.push(...(await callArray(session, "TestCase.filter", [{ id: Number(query) }])));
+      }
+      return dedupeCaseSearchRecords(records)
+        .map((record) => mapCaseSearchRecord(record, input.mode, query))
+        .sort((left, right) => left.caseId - right.caseId);
+    });
+  }
+
   async listTestRuns(config: KiwiConfig): Promise<KiwiTestRun[]> {
     return this.execute(config, async (session) => {
       const records = await callArray(session, "TestRun.filter", [{}]);
@@ -207,7 +243,10 @@ export class RealKiwiAdapter implements KiwiAdapter {
     });
   }
 
-  async searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]> {
+  async searchTestRuns(
+    config: KiwiConfig,
+    input: { query: string; planId?: number; build?: string }
+  ): Promise<KiwiTestRun[]> {
     return this.execute(config, async (session) => {
       const query = input.query.trim();
       const filter: RpcStruct = {};
@@ -220,7 +259,10 @@ export class RealKiwiAdapter implements KiwiAdapter {
         filter.summary__icontains = query;
       }
       const records = await callArray(session, "TestRun.filter", [filter]);
-      return records.map(mapTestRunRecord).sort((left, right) => left.id - right.id);
+      return records
+        .map(mapTestRunRecord)
+        .filter((run) => !input.build || run.build === input.build)
+        .sort((left, right) => left.id - right.id);
     });
   }
 
@@ -416,6 +458,13 @@ export class RealKiwiAdapter implements KiwiAdapter {
       await this.findPlanRecordById(session, planId);
       await this.findCaseRecordById(session, caseId);
       await session.call("TestPlan.remove_case", [planId, caseId]);
+    });
+  }
+
+  async deleteCase(config: KiwiConfig, caseId: number): Promise<void> {
+    return this.execute(config, async (session) => {
+      await this.findCaseRecordById(session, caseId);
+      await session.call("TestCase.remove", [{ pk: caseId }]);
     });
   }
 
@@ -840,6 +889,46 @@ function mapExecutionRecord(record: RpcStruct): KiwiCaseExecution {
     status: optionalString(record.status__name) ?? optionalString(record.status) ?? "",
     comment: optionalString(record.comment)
   };
+}
+
+function mapTemplateRecord(record: RpcStruct): KiwiTemplate {
+  return {
+    id: asNumber(record.id, "id"),
+    name: asString(record.name, "name"),
+    text: optionalString(record.text) ?? ""
+  };
+}
+
+function mapCaseSearchRecord(
+  record: RpcStruct,
+  mode: KiwiCaseSearchMode,
+  query: string
+): KiwiCaseSearchResult {
+  const text = optionalString(record.text) ?? "";
+  return {
+    caseId: asNumber(record.id, "id"),
+    summary: optionalString(record.summary) ?? "",
+    textSnippet: mode === "body" ? buildTextSnippet(text, query.toLocaleLowerCase()) : undefined
+  };
+}
+
+function buildTextSnippet(text: string, normalizedQuery: string): string {
+  const normalizedText = text.toLocaleLowerCase();
+  const index = normalizedText.indexOf(normalizedQuery);
+  if (index === -1) {
+    return text.slice(0, 120);
+  }
+  const start = Math.max(0, index - 40);
+  const end = Math.min(text.length, index + normalizedQuery.length + 80);
+  return `${start > 0 ? "..." : ""}${text.slice(start, end)}${end < text.length ? "..." : ""}`;
+}
+
+function dedupeCaseSearchRecords(records: RpcStruct[]): RpcStruct[] {
+  const byId = new Map<number, RpcStruct>();
+  for (const record of records) {
+    byId.set(asNumber(record.id, "id"), record);
+  }
+  return [...byId.values()];
 }
 
 function shouldInvalidateSession(error: KiwiError): boolean {

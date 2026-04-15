@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { KiwiAdapter } from "../adapter/types";
 import { KiwiError } from "../domain/errors";
 import { KiwiConfig } from "../types";
+import { CASE_SEARCH_PAGE_SIZE, paginateCaseSearchItems } from "./buildCaseSearchQuickPickItems";
 import {
   CaseFilterFormState,
   CaseFilterOptions,
@@ -19,7 +20,10 @@ type PanelSession = {
   formState: CaseFilterFormState;
   options: CaseFilterOptions;
   results: CaseFilterResult[];
+  selectedCaseIds: number[];
+  visibleCount: number;
   isSearching: boolean;
+  isBulkUpdating: boolean;
   message: string;
 };
 
@@ -27,7 +31,14 @@ type WebviewState = {
   formState: CaseFilterFormState;
   options: CaseFilterOptions;
   results: CaseFilterResult[];
+  visibleResults: CaseFilterResult[];
+  visibleCount: number;
+  totalCount: number;
+  hasMore: boolean;
   isSearching: boolean;
+  isBulkUpdating: boolean;
+  selectedCaseIds: number[];
+  selectedCount: number;
   message: string;
 };
 
@@ -58,7 +69,7 @@ export class CaseFilterController implements vscode.Disposable {
     const options = await this.loadOptions();
     const panel = vscode.window.createWebviewPanel(
       "kiwiCaseFilter",
-      "テストケースをフィルタ",
+      "テストケースを探す",
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -70,8 +81,11 @@ export class CaseFilterController implements vscode.Disposable {
       formState: emptyFormState(),
       options,
       results: [],
+      selectedCaseIds: [],
+      visibleCount: CASE_SEARCH_PAGE_SIZE,
       isSearching: false,
-      message: "条件を入力して検索してください。",
+      isBulkUpdating: false,
+      message: "条件を入力して検索してください。"
     };
     this.session = session;
 
@@ -95,6 +109,10 @@ export class CaseFilterController implements vscode.Disposable {
     return toWebviewState(this.session);
   }
 
+  getHtmlForTest(): string | undefined {
+    return this.session?.panel.webview.html;
+  }
+
   async searchForTest(formState: CaseFilterFormState): Promise<CaseFilterResult[]> {
     if (!this.session) {
       throw new KiwiError("ValidationFailed", "Case filter panel is not open.");
@@ -111,6 +129,35 @@ export class CaseFilterController implements vscode.Disposable {
     return uri.toString();
   }
 
+  async toggleSelectedForTest(caseId: number, selected: boolean): Promise<WebviewState> {
+    if (!this.session) {
+      throw new KiwiError("ValidationFailed", "Case filter panel is not open.");
+    }
+    this.toggleSelected(this.session, caseId, selected);
+    return toWebviewState(this.session);
+  }
+
+  async bulkUpdateStatusForTest(caseIds: number[], status: string): Promise<{ updated: number; failed: number }> {
+    if (!this.session) {
+      throw new KiwiError("ValidationFailed", "Case filter panel is not open.");
+    }
+    return this.bulkUpdateStatus(this.session, caseIds, status);
+  }
+
+  async bulkAddTagsForTest(caseIds: number[], tagsInput: string): Promise<{ updated: number; failed: number }> {
+    if (!this.session) {
+      throw new KiwiError("ValidationFailed", "Case filter panel is not open.");
+    }
+    return this.bulkUpdateTags(this.session, caseIds, tagsInput, "add");
+  }
+
+  async bulkRemoveTagsForTest(caseIds: number[], tagsInput: string): Promise<{ updated: number; failed: number }> {
+    if (!this.session) {
+      throw new KiwiError("ValidationFailed", "Case filter panel is not open.");
+    }
+    return this.bulkUpdateTags(this.session, caseIds, tagsInput, "remove");
+  }
+
   private async handleMessage(session: PanelSession, message: unknown): Promise<void> {
     if (!isMessage(message)) {
       return;
@@ -124,8 +171,27 @@ export class CaseFilterController implements vscode.Disposable {
         case "clear":
           session.formState = emptyFormState();
           session.results = [];
+          session.selectedCaseIds = [];
+          session.visibleCount = CASE_SEARCH_PAGE_SIZE;
           session.message = "条件を入力して検索してください。";
           this.pushState(session);
+          break;
+        case "loadMore":
+          session.visibleCount += CASE_SEARCH_PAGE_SIZE;
+          session.message = buildResultMessage(session);
+          this.pushState(session);
+          break;
+        case "toggleSelected":
+          this.toggleSelected(session, message.caseId, message.selected);
+          break;
+        case "bulkUpdateStatus":
+          await this.promptAndBulkUpdateStatus(session);
+          break;
+        case "bulkAddTags":
+          await this.promptAndBulkUpdateTags(session, "add");
+          break;
+        case "bulkRemoveTags":
+          await this.promptAndBulkUpdateTags(session, "remove");
           break;
         case "reload":
           await this.reload(session);
@@ -162,7 +228,7 @@ export class CaseFilterController implements vscode.Disposable {
       const results = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: "テストケースをフィルタ中..."
+          title: "Exploring cases..."
         },
         async () => {
           const { adapter, config } = await this.clientFactory();
@@ -175,10 +241,11 @@ export class CaseFilterController implements vscode.Disposable {
         }
       );
       session.results = results;
-      session.message =
-        results.length === 0
-          ? "一致するテストケースはありません。"
-          : `${results.length} 件のテストケースが見つかりました。`;
+      session.selectedCaseIds = session.selectedCaseIds.filter((caseId) =>
+        results.some((result) => result.caseRef.id === caseId)
+      );
+      session.visibleCount = CASE_SEARCH_PAGE_SIZE;
+      session.message = buildResultMessage(session);
       return results;
     } finally {
       session.isSearching = false;
@@ -191,7 +258,172 @@ export class CaseFilterController implements vscode.Disposable {
   private async reload(session: PanelSession): Promise<void> {
     session.options = await this.loadOptions();
     session.message = "条件を入力して検索してください。";
+    session.selectedCaseIds = [];
+    session.visibleCount = CASE_SEARCH_PAGE_SIZE;
     this.pushState(session);
+  }
+
+  private toggleSelected(session: PanelSession, caseId: number, selected: boolean): void {
+    const next = new Set(session.selectedCaseIds);
+    if (selected) {
+      next.add(caseId);
+    } else {
+      next.delete(caseId);
+    }
+    session.selectedCaseIds = [...next].sort((left, right) => left - right);
+    session.message = buildResultMessage(session);
+    this.pushState(session);
+  }
+
+  private async promptAndBulkUpdateStatus(session: PanelSession): Promise<void> {
+    const caseIds = selectedCaseIds(session);
+    if (caseIds.length === 0) {
+      session.message = "一括更新するテストケースを選択してください。";
+      this.pushState(session);
+      return;
+    }
+    const picked = await vscode.window.showQuickPick(
+      session.options.statuses.map((status) => ({ label: status, status })),
+      { placeHolder: "選択したテストケースへ適用する status を選択してください" }
+    );
+    if (!picked) {
+      return;
+    }
+    const proceed =
+      (await vscode.window.showWarningMessage(
+        `${caseIds.length} 件のテストケースに status=${picked.status} を適用しますか？`,
+        { modal: true },
+        "適用"
+      )) === "適用";
+    if (!proceed) {
+      return;
+    }
+    const result = await this.bulkUpdateStatus(session, caseIds, picked.status);
+    session.message = `Bulk status update finished. updated=${result.updated}, failed=${result.failed}`;
+    this.pushState(session);
+  }
+
+  private async bulkUpdateStatus(
+    session: PanelSession,
+    caseIds: number[],
+    status: string
+  ): Promise<{ updated: number; failed: number }> {
+    const { adapter, config } = await this.clientFactory();
+    let updated = 0;
+    let failed = 0;
+    session.isBulkUpdating = true;
+    session.message = "一括 status 更新中...";
+    this.pushState(session);
+    try {
+      for (const caseId of caseIds) {
+        try {
+          await adapter.updateCaseMetadata(config, caseId, { status });
+          updated += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await this.refreshResults(session, adapter, config);
+      return { updated, failed };
+    } finally {
+      session.isBulkUpdating = false;
+      this.pushState(session);
+    }
+  }
+
+  private async promptAndBulkUpdateTags(session: PanelSession, mode: "add" | "remove"): Promise<void> {
+    const caseIds = selectedCaseIds(session);
+    if (caseIds.length === 0) {
+      session.message = "一括更新するテストケースを選択してください。";
+      this.pushState(session);
+      return;
+    }
+    const tagsInput = await vscode.window.showInputBox({
+      prompt: mode === "add" ? "追加するタグを comma-separated で入力してください" : "削除するタグを comma-separated で入力してください",
+      placeHolder: "smoke, regression"
+    });
+    if (tagsInput === undefined) {
+      return;
+    }
+    const normalizedTags = normalizeTags(tagsInput);
+    if (normalizedTags.length === 0) {
+      session.message = "タグを入力してください。";
+      this.pushState(session);
+      return;
+    }
+    const actionLabel = mode === "add" ? "追加" : "削除";
+    const proceed =
+      (await vscode.window.showWarningMessage(
+        `${caseIds.length} 件のテストケースに対してタグを${actionLabel}しますか？`,
+        { modal: true },
+        actionLabel
+      )) === actionLabel;
+    if (!proceed) {
+      return;
+    }
+    const result = await this.bulkUpdateTags(session, caseIds, tagsInput, mode);
+    session.message = `Bulk tag ${mode === "add" ? "add" : "remove"} finished. updated=${result.updated}, failed=${result.failed}`;
+    this.pushState(session);
+  }
+
+  private async bulkUpdateTags(
+    session: PanelSession,
+    caseIds: number[],
+    tagsInput: string,
+    mode: "add" | "remove"
+  ): Promise<{ updated: number; failed: number }> {
+    const { adapter, config } = await this.clientFactory();
+    const targetTags = normalizeTags(tagsInput);
+    let updated = 0;
+    let failed = 0;
+    session.isBulkUpdating = true;
+    session.message = mode === "add" ? "一括 tag 追加中..." : "一括 tag 削除中...";
+    this.pushState(session);
+    try {
+      for (const caseId of caseIds) {
+        try {
+          const current = await adapter.getCase(config, caseId);
+          const currentTags = current.tags.map((tag) => tag.trim());
+          const nextTags =
+            mode === "add"
+              ? [...new Set([...currentTags, ...targetTags])].sort((left, right) => left.localeCompare(right))
+              : currentTags
+                  .filter((tag) => !targetTags.includes(tag.toLocaleLowerCase()))
+                  .sort((left, right) => left.localeCompare(right));
+          await adapter.updateCaseMetadata(config, caseId, { tags: nextTags });
+          updated += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      await this.refreshResults(session, adapter, config);
+      return { updated, failed };
+    } finally {
+      session.isBulkUpdating = false;
+      this.pushState(session);
+    }
+  }
+
+  private async refreshResults(
+    session: PanelSession,
+    adapter: KiwiAdapter,
+    config: KiwiConfig
+  ): Promise<void> {
+    const refreshed: CaseFilterResult[] = [];
+    for (const result of session.results) {
+      const caseData = await adapter.getCase(config, result.caseRef.id, result.plan.id);
+      refreshed.push({
+        ...result,
+        caseRef: {
+          id: caseData.id,
+          summary: caseData.summary
+        },
+        status: caseData.status,
+        priority: caseData.priority,
+        tags: [...caseData.tags].sort((left, right) => left.localeCompare(right))
+      });
+    }
+    session.results = refreshed;
   }
 
   private async openByCaseId(session: PanelSession, caseId: number): Promise<void> {
@@ -225,6 +457,7 @@ export class CaseFilterController implements vscode.Disposable {
 }
 
 function toWebviewState(session: PanelSession): WebviewState {
+  const page = visiblePage(session);
   return {
     formState: { ...session.formState },
     options: {
@@ -237,11 +470,38 @@ function toWebviewState(session: PanelSession): WebviewState {
       caseRef: { ...result.caseRef },
       status: result.status,
       priority: result.priority,
-      tags: [...result.tags]
+      tags: [...result.tags],
+      textSnippet: result.textSnippet
     })),
+    visibleResults: page.visibleItems.map((result) => ({
+      plan: { ...result.plan },
+      caseRef: { ...result.caseRef },
+      status: result.status,
+      priority: result.priority,
+      tags: [...result.tags],
+      textSnippet: result.textSnippet
+    })),
+    visibleCount: page.visibleCount,
+    totalCount: session.results.length,
+    hasMore: page.hasMore,
     isSearching: session.isSearching,
+    isBulkUpdating: session.isBulkUpdating,
+    selectedCaseIds: [...session.selectedCaseIds],
+    selectedCount: session.selectedCaseIds.length,
     message: session.message
   };
+}
+
+function visiblePage(session: PanelSession) {
+  return paginateCaseSearchItems(session.results, session.visibleCount);
+}
+
+function buildResultMessage(session: PanelSession): string {
+  if (session.results.length === 0) {
+    return "一致するテストケースはありません。";
+  }
+  const page = visiblePage(session);
+  return `表示中 ${page.visibleCount} / 総件数 ${page.totalCount} / 選択 ${session.selectedCaseIds.length}`;
 }
 
 function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): string {
@@ -254,7 +514,7 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>テストケースをフィルタ</title>
+    <title>テストケースを探す</title>
     <style>
       :root { color-scheme: light dark; }
       body {
@@ -284,10 +544,14 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         background: var(--vscode-input-background);
         border: 1px solid var(--vscode-input-border, transparent);
       }
-      .actions {
+      .actions, .bulk-actions {
         display: flex;
         gap: 8px;
         align-items: end;
+      }
+      .bulk-actions {
+        margin: 0 0 12px;
+        flex-wrap: wrap;
       }
       button {
         padding: 8px 14px;
@@ -330,12 +594,21 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       .summary {
         min-width: 220px;
       }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 26px;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
+    <h1>テストケースを探す</h1>
     <form id="form">
       <label>Query
         <input id="query" type="text" placeholder="ID または summary" />
+      </label>
+      <label>Query Target
+        <select id="queryTarget"></select>
       </label>
       <label>Plan
         <select id="planId"></select>
@@ -356,15 +629,23 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       </div>
     </form>
     <p class="message" id="message"></p>
+    <div class="bulk-actions">
+      <span id="selectionSummary">選択件数: 0</span>
+      <button class="secondary" id="bulkStatus" type="button">status を一括変更</button>
+      <button class="secondary" id="bulkAddTags" type="button">tag を追加</button>
+      <button class="secondary" id="bulkRemoveTags" type="button">tag を削除</button>
+    </div>
     <table>
       <thead>
         <tr>
+          <th></th>
           <th>ID</th>
           <th class="summary">Summary</th>
           <th>Plan</th>
           <th>Status</th>
           <th>Priority</th>
           <th>Tags</th>
+          <th>Snippet</th>
           <th></th>
         </tr>
       </thead>
@@ -374,15 +655,21 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       const vscode = acquireVsCodeApi();
       const form = document.getElementById('form');
       const query = document.getElementById('query');
+      const queryTarget = document.getElementById('queryTarget');
       const planId = document.getElementById('planId');
       const status = document.getElementById('status');
       const priority = document.getElementById('priority');
       const tagsInput = document.getElementById('tagsInput');
       const searchButton = document.getElementById('search');
       const clearButton = document.getElementById('clear');
+      const loadMoreButton = document.createElement('button');
       const closeButton = document.getElementById('close');
       const message = document.getElementById('message');
       const results = document.getElementById('results');
+      const selectionSummary = document.getElementById('selectionSummary');
+      const bulkStatusButton = document.getElementById('bulkStatus');
+      const bulkAddTagsButton = document.getElementById('bulkAddTags');
+      const bulkRemoveTagsButton = document.getElementById('bulkRemoveTags');
       let state = ${bootstrap};
 
       function option(select, value, text, selected) {
@@ -394,6 +681,9 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       }
 
       function renderSelects() {
+        queryTarget.innerHTML = '';
+        option(queryTarget, 'id-summary', 'ID / Summary', state.formState.queryTarget === 'id-summary');
+        option(queryTarget, 'body', '本文全文', state.formState.queryTarget === 'body');
         planId.innerHTML = '';
         option(planId, '', 'All Plans', state.formState.planId === '');
         for (const plan of state.options.plans) {
@@ -413,15 +703,26 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
 
       function renderResults() {
         results.innerHTML = '';
-        for (const result of state.results) {
+        for (const result of state.visibleResults) {
           const row = document.createElement('tr');
+          const selectionCell = document.createElement('td');
+          const selection = document.createElement('input');
+          selection.type = 'checkbox';
+          selection.checked = state.selectedCaseIds.includes(result.caseRef.id);
+          selection.disabled = state.isSearching || state.isBulkUpdating;
+          selection.addEventListener('change', () => {
+            vscode.postMessage({ type: 'toggleSelected', caseId: result.caseRef.id, selected: selection.checked });
+          });
+          selectionCell.appendChild(selection);
+          row.appendChild(selectionCell);
           const cells = [
             result.caseRef.id,
             result.caseRef.summary,
             result.plan.id + ' - ' + result.plan.name,
             result.status,
             result.priority,
-            result.tags.join(', ')
+            result.tags.join(', '),
+            result.textSnippet || ''
           ];
           for (const cellValue of cells) {
             const cell = document.createElement('td');
@@ -449,7 +750,12 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         message.textContent = state.message;
         searchButton.disabled = state.isSearching;
         clearButton.disabled = state.isSearching;
+        selectionSummary.textContent = '選択件数: ' + state.selectedCount;
+        bulkStatusButton.disabled = state.selectedCount === 0 || state.isSearching || state.isBulkUpdating;
+        bulkAddTagsButton.disabled = state.selectedCount === 0 || state.isSearching || state.isBulkUpdating;
+        bulkRemoveTagsButton.disabled = state.selectedCount === 0 || state.isSearching || state.isBulkUpdating;
         renderResults();
+        loadMoreButton.style.display = state.hasMore ? 'inline-block' : 'none';
       }
 
       form.addEventListener('submit', (event) => {
@@ -458,6 +764,7 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
           type: 'search',
           formState: {
             query: query.value,
+            queryTarget: queryTarget.value,
             planId: planId.value,
             status: status.value,
             priority: priority.value,
@@ -466,6 +773,15 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         });
       });
       clearButton.addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
+      bulkStatusButton.addEventListener('click', () => vscode.postMessage({ type: 'bulkUpdateStatus' }));
+      bulkAddTagsButton.addEventListener('click', () => vscode.postMessage({ type: 'bulkAddTags' }));
+      bulkRemoveTagsButton.addEventListener('click', () => vscode.postMessage({ type: 'bulkRemoveTags' }));
+      loadMoreButton.className = 'secondary';
+      loadMoreButton.id = 'loadMore';
+      loadMoreButton.type = 'button';
+      loadMoreButton.textContent = 'さらに表示';
+      loadMoreButton.addEventListener('click', () => vscode.postMessage({ type: 'loadMore' }));
+      clearButton.parentElement.insertBefore(loadMoreButton, closeButton);
       closeButton.addEventListener('click', () => vscode.postMessage({ type: 'close' }));
       window.addEventListener('message', (event) => {
         const incoming = event.data;
@@ -487,6 +803,11 @@ function isMessage(
 ): value is
   | { type: "search"; formState: CaseFilterFormState }
   | { type: "clear" }
+  | { type: "loadMore" }
+  | { type: "toggleSelected"; caseId: number; selected: boolean }
+  | { type: "bulkUpdateStatus" }
+  | { type: "bulkAddTags" }
+  | { type: "bulkRemoveTags" }
   | { type: "reload" }
   | { type: "close" }
   | { type: "open"; caseId: number } {
@@ -494,17 +815,27 @@ function isMessage(
     return false;
   }
   const type = (value as { type?: unknown }).type;
-  if (type === "clear" || type === "reload" || type === "close") {
+  if (type === "clear" || type === "loadMore" || type === "reload" || type === "close") {
+    return true;
+  }
+  if (type === "bulkUpdateStatus" || type === "bulkAddTags" || type === "bulkRemoveTags") {
     return true;
   }
   if (type === "open") {
     return typeof (value as { caseId?: unknown }).caseId === "number";
+  }
+  if (type === "toggleSelected") {
+    return (
+      typeof (value as { caseId?: unknown }).caseId === "number" &&
+      typeof (value as { selected?: unknown }).selected === "boolean"
+    );
   }
   if (type === "search") {
     const formState = (value as { formState?: CaseFilterFormState }).formState;
     return Boolean(
       formState &&
         typeof formState.query === "string" &&
+        (formState.queryTarget === "id-summary" || formState.queryTarget === "body") &&
         typeof formState.planId === "string" &&
         typeof formState.status === "string" &&
         typeof formState.priority === "string" &&
@@ -517,6 +848,7 @@ function isMessage(
 function emptyFormState(): CaseFilterFormState {
   return {
     query: "",
+    queryTarget: "id-summary",
     planId: "",
     status: "",
     priority: "",
@@ -533,4 +865,22 @@ function humanMessage(error: unknown): string {
 
 function createNonce(): string {
   return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
+function selectedCaseIds(session: PanelSession): number[] {
+  return session.selectedCaseIds.filter((caseId) =>
+    session.results.some((result) => result.caseRef.id === caseId)
+  );
+}
+
+function normalizeTags(tagsInput: string): string[] {
+  return [
+    ...new Set(
+      tagsInput
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+        .map((tag) => tag.toLocaleLowerCase())
+    )
+  ].sort((left, right) => left.localeCompare(right));
 }

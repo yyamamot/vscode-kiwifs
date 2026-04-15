@@ -234,6 +234,44 @@ describe("realKiwiAdapter", () => {
     await expect(adapter.listPriorities(config)).resolves.toEqual(["P1", "P2"]);
   });
 
+  it("searches cases through TestCase.filter", async () => {
+    const session = new FakeSession({
+      "TestCase.filter": [
+        [{ id: 501, summary: "Login works", text: "Open login page" }],
+        [{ id: 502, summary: "Password reset", text: "Reset with email token" }],
+        [{ id: 501, summary: "Case 501", text: "Numeric summary match" }],
+        [{ id: 501, summary: "Case 501 exact", text: "Numeric id match" }]
+      ]
+    });
+    const adapter = new RealKiwiAdapter(() => session);
+
+    await expect(adapter.searchCases(config, { query: "Login", mode: "id-summary" })).resolves.toEqual([
+      { caseId: 501, summary: "Login works", textSnippet: undefined }
+    ]);
+    await expect(adapter.searchCases(config, { query: "email", mode: "body" })).resolves.toEqual([
+      { caseId: 502, summary: "Password reset", textSnippet: "Reset with email token" }
+    ]);
+    await expect(adapter.searchCases(config, { query: "501", mode: "id-summary" })).resolves.toEqual([
+      { caseId: 501, summary: "Case 501 exact", textSnippet: undefined }
+    ]);
+    expect(session.calls).toContainEqual({
+      method: "TestCase.filter",
+      params: [{ summary__icontains: "Login" }]
+    });
+    expect(session.calls).toContainEqual({
+      method: "TestCase.filter",
+      params: [{ text__icontains: "email" }]
+    });
+    expect(session.calls).toContainEqual({
+      method: "TestCase.filter",
+      params: [{ summary__icontains: "501" }]
+    });
+    expect(session.calls).toContainEqual({
+      method: "TestCase.filter",
+      params: [{ id: 501 }]
+    });
+  });
+
   it("creates a case and links it to the selected plan", async () => {
     const session = new FakeSession({
       "TestPlan.filter": [
@@ -317,6 +355,27 @@ describe("realKiwiAdapter", () => {
     });
   });
 
+  it("lists case templates from Kiwi", async () => {
+    const session = new FakeSession({
+      "Template.filter": [
+        [
+          { id: 20, name: "Smoke", text: "# Smoke" },
+          { id: 10, name: "Regression", text: "# Regression" }
+        ]
+      ]
+    });
+    const adapter = new RealKiwiAdapter(() => session);
+
+    await expect(adapter.listCaseTemplates(config)).resolves.toEqual([
+      { id: 10, name: "Regression", text: "# Regression" },
+      { id: 20, name: "Smoke", text: "# Smoke" }
+    ]);
+    expect(session.calls).toContainEqual({
+      method: "Template.filter",
+      params: [{}]
+    });
+  });
+
   it("links an existing case to a selected plan", async () => {
     const session = new FakeSession({
       "TestPlan.filter": [[{ id: 100, name: "Regression", text: "", product: 1 }]],
@@ -346,6 +405,45 @@ describe("realKiwiAdapter", () => {
     expect(session.calls).toContainEqual({
       method: "TestPlan.remove_case",
       params: [100, 501]
+    });
+  });
+
+  it("deletes an existing case", async () => {
+    const session = new FakeSession({
+      "TestCase.filter": [[{ id: 501, summary: "Login works" }]],
+      "TestCase.remove": [undefined]
+    });
+    const adapter = new RealKiwiAdapter(() => session);
+
+    await adapter.deleteCase(config, 501);
+
+    expect(session.calls).toContainEqual({
+      method: "TestCase.remove",
+      params: [{ pk: 501 }]
+    });
+  });
+
+  it("filters test runs by query, plan, and build", async () => {
+    const session = new FakeSession({
+      "TestRun.filter": [
+        [
+          { id: 300, summary: "Regression run", build__name: "2026.04", plan: 100 },
+          { id: 301, summary: "Regression run", build__name: "2026.04-nightly", plan: 100 }
+        ]
+      ]
+    });
+    const adapter = new RealKiwiAdapter(() => session);
+
+    const runs = await adapter.searchTestRuns(config, {
+      query: "Regression",
+      planId: 100,
+      build: "2026.04"
+    });
+
+    expect(runs).toEqual([{ id: 300, summary: "Regression run", build: "2026.04", planId: 100 }]);
+    expect(session.calls).toContainEqual({
+      method: "TestRun.filter",
+      params: [{ plan: 100, summary__icontains: "Regression" }]
     });
   });
 

@@ -1,4 +1,4 @@
-import { KiwiCase, KiwiCaseCreatePayload, KiwiCaseMetadataPatch } from "../types";
+import { KiwiCase, KiwiCaseCreatePayload, KiwiCaseMetadataPatch, KiwiTemplate } from "../types";
 import { KiwiError } from "./errors";
 
 export type EditableCaseMetadata = Pick<KiwiCase, "summary" | "status" | "priority" | "tags">;
@@ -16,6 +16,44 @@ export const DEFAULT_CASE_BODY_TEMPLATE = `# Purpose
 
 # Expected Result
 `;
+
+export const DEFAULT_TEMPLATE_ID = "default";
+
+export interface CaseTemplateOption {
+  id: string;
+  name: string;
+  text: string;
+  isDefault: boolean;
+}
+
+export function buildCaseTemplateOptions(templates: KiwiTemplate[]): CaseTemplateOption[] {
+  return [
+    {
+      id: DEFAULT_TEMPLATE_ID,
+      name: "既定テンプレート",
+      text: DEFAULT_CASE_BODY_TEMPLATE,
+      isDefault: true
+    },
+    ...templates.map((template) => ({
+      id: String(template.id),
+      name: template.name,
+      text: template.text,
+      isDefault: false
+    }))
+  ];
+}
+
+export function resolveCaseTemplateText(
+  options: CaseTemplateOption[],
+  selectedTemplateId: string | undefined
+): string {
+  const defaultOption =
+    options.find((option) => option.isDefault) ?? buildCaseTemplateOptions([])[0];
+  return (
+    options.find((option) => option.id === selectedTemplateId)?.text ??
+    defaultOption.text
+  );
+}
 
 export function toCaseMetadataFormState(caseData: EditableCaseMetadata): CaseMetadataFormState {
   return {

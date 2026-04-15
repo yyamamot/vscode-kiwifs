@@ -1,9 +1,11 @@
 import { KiwiAdapter } from "../adapter/types";
 import { KiwiError } from "../domain/errors";
-import { KiwiCase, KiwiConfig, KiwiPlan, PlanCaseRef } from "../types";
+import { KiwiCase, KiwiCaseSearchMode, KiwiConfig, KiwiPlan, PlanCaseRef } from "../types";
+import { buildCaseSearchMatchesFromResults } from "./buildCaseSearchQuickPickItems";
 
 export interface CaseFilterFormState {
   query: string;
+  queryTarget: KiwiCaseSearchMode;
   planId: string;
   status: string;
   priority: string;
@@ -22,10 +24,12 @@ export interface CaseFilterResult {
   status: string;
   priority: string;
   tags: string[];
+  textSnippet?: string;
 }
 
 export interface NormalizedCaseFilter {
   query: string;
+  queryTarget: KiwiCaseSearchMode;
   planId?: number;
   status?: string;
   priority?: string;
@@ -50,26 +54,41 @@ export async function filterCasesWithMetadata(args: {
   const planCases = await Promise.all(
     plans.map(async (plan) => ({
       plan,
-      cases: filterCaseRefsByQuery(await args.adapter.listPlanCases(args.config, plan.id), filter.query)
+      cases: await args.adapter.listPlanCases(args.config, plan.id)
     }))
   );
+  const matchedPlanCases =
+    filter.query && filter.queryTarget === "body"
+      ? buildCaseSearchMatchesFromResults(
+          planCases,
+          await args.adapter.searchCases(args.config, {
+            query: filter.query,
+            mode: "body"
+          })
+        )
+      : planCases.flatMap((entry) =>
+          filterCaseRefsByQuery(entry.cases, filter.query).map((caseRef) => ({
+            plan: entry.plan,
+            caseRef,
+            textSnippet: undefined
+          }))
+        );
 
   const results: CaseFilterResult[] = [];
-  for (const entry of planCases) {
-    for (const caseRef of entry.cases) {
-      const caseData = await args.adapter.getCase(args.config, caseRef.id, entry.plan.id);
-      if (matchesMetadata(caseData, filter)) {
-        results.push({
-          plan: entry.plan,
-          caseRef: {
-            id: caseData.id,
-            summary: caseData.summary
-          },
-          status: caseData.status,
-          priority: caseData.priority,
-          tags: [...caseData.tags].sort((left, right) => left.localeCompare(right))
-        });
-      }
+  for (const match of matchedPlanCases) {
+    const caseData = await args.adapter.getCase(args.config, match.caseRef.id, match.plan.id);
+    if (matchesMetadata(caseData, filter)) {
+      results.push({
+        plan: match.plan,
+        caseRef: {
+          id: caseData.id,
+          summary: caseData.summary
+        },
+        status: caseData.status,
+        priority: caseData.priority,
+        tags: [...caseData.tags].sort((left, right) => left.localeCompare(right)),
+        textSnippet: match.textSnippet
+      });
     }
   }
 
@@ -99,6 +118,7 @@ export function normalizeCaseFilterFormState(
 
   return {
     query,
+    queryTarget: formState.queryTarget,
     planId,
     status: formState.status || undefined,
     priority: formState.priority || undefined,

@@ -267,7 +267,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     session.state.isLoading = false;
     session.state.message =
       executions.length === 0
-        ? "このテストケースはまだどの Test Run にも登録されていません。"
+        ? "テストケースはまだどの Test Run にも登録されていません。"
         : `${executions.length} 件の登録済み実行結果があります。`;
     this.pushState(session);
   }
@@ -298,7 +298,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       return;
     }
     const picked = await vscode.window.showQuickPick(items, {
-      placeHolder: "このテストケースに追加する Test Run を選択してください",
+      placeHolder: "テストケースに追加する Test Run を選択してください",
       matchOnDescription: true,
       matchOnDetail: true
     });
@@ -583,7 +583,7 @@ function cloneBoardState(state: BoardState): BoardState {
 }
 
 function panelTitle(target: CaseExecutionBoardTarget): string {
-  return `複数のテスト実行を管理: ${target.caseRef.id} - ${target.caseRef.summary}`;
+  return `テストケースの実行を管理: ${target.caseRef.id} - ${target.caseRef.summary}`;
 }
 
 function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
@@ -726,7 +726,7 @@ function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
       if (state.groups.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'empty';
-        empty.textContent = 'このテストケースはまだどの Test Run にも登録されていません。';
+        empty.textContent = 'テストケースはまだどの Test Run にも登録されていません。';
         groupsEl.appendChild(empty);
         return;
       }

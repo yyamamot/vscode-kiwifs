@@ -14,6 +14,13 @@ import { deriveVersionToken } from "../domain/versionToken";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { KiwiError } from "../domain/errors";
 
+type CaseWriteConflictHandler = (input: {
+  caseId: number;
+  planId: number;
+  localVersionToken: string;
+  remoteVersionToken: string;
+}) => void;
+
 export class KiwiFileSystemProvider implements vscode.FileSystemProvider {
   private readonly emitter = new vscode.EventEmitter<vscode.FileChangeEvent[]>();
   private readonly planListCache = new Map<string, [string, vscode.FileType][]>();
@@ -32,7 +39,8 @@ export class KiwiFileSystemProvider implements vscode.FileSystemProvider {
       adapter: KiwiAdapter;
       config: KiwiConfig;
     }>,
-    private readonly logger: JsonlLogger
+    private readonly logger: JsonlLogger,
+    private readonly onCaseWriteConflict?: CaseWriteConflictHandler
   ) {}
 
   readonly onDidChangeFile = this.emitter.event;
@@ -244,6 +252,12 @@ export class KiwiFileSystemProvider implements vscode.FileSystemProvider {
       const latestHistory = await adapter.getCaseHistory(config, caseId);
       const latestVersionToken = deriveVersionToken(latestHistory);
       if (session.versionToken !== latestVersionToken) {
+        this.onCaseWriteConflict?.({
+          caseId,
+          planId,
+          localVersionToken: session.versionToken,
+          remoteVersionToken: latestVersionToken
+        });
         throw new KiwiError("ConflictDetected", "Case was updated remotely.");
       }
 
@@ -324,6 +338,11 @@ export class KiwiFileSystemProvider implements vscode.FileSystemProvider {
 
   getCachedCaseDocument(uri: vscode.Uri): CaseDocumentCacheEntry | undefined {
     return this.caseContentCache.get(uri.toString());
+  }
+
+  getCaseDocumentSession(uri: vscode.Uri): CaseDocumentSessionMetadata | undefined {
+    const session = this.caseSessionCache.get(uri.toString());
+    return session ? { ...session } : undefined;
   }
 
   releaseCaseDocument(uri: vscode.Uri): void {
@@ -499,7 +518,7 @@ function humanMessage(error: unknown): string {
       case "ValidationFailed":
         return "Case Document を開き直してから再保存してください。";
       case "ConflictDetected":
-        return "他の更新が入ったため保存できません。";
+        return "remote が更新されています。差分確認または明示更新してください。";
       case "ApiUnsupported":
         return "この操作はまだサポートされていません。";
     }

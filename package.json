@@ -24,6 +24,7 @@
     "onCommand:kiwi.openRoot",
     "onCommand:kiwi.searchCases",
     "onCommand:kiwi.filterCases",
+    "onCommand:kiwi.filterTestRuns",
     "onCommand:kiwi.openTestRunDashboard",
     "onCommand:kiwi.configureBaseUrl",
     "onCommand:kiwi.configureUsername",
@@ -38,11 +39,15 @@
     "onCommand:kiwi.createCase",
     "onCommand:kiwi.addExistingCaseToPlan",
     "onCommand:kiwi.removeCaseFromPlan",
+    "onCommand:kiwi.removeCaseFromPlanFromPlan",
+    "onCommand:kiwi.deleteCase",
     "onCommand:kiwi.downloadPlanToLocalMirror",
     "onCommand:kiwi.showPlanLocalMirrorStatus",
     "onCommand:kiwi.refreshCaseDocument",
+    "onCommand:kiwi.checkCaseFreshness",
     "onCommand:kiwi.showCaseDiff",
     "onCommand:kiwi.showCaseHistoryDiff",
+    "onCommand:kiwi.showCaseHistory",
     "onCommand:kiwi.showCaseInfo",
     "onCommand:kiwi.editCaseMetadata",
     "onCommand:kiwi.duplicateCase",
@@ -65,7 +70,7 @@
     "commands": [
       {
         "command": "kiwi.openRoot",
-        "title": "Kiwi: Open Root"
+        "title": "Kiwi: ルートを開く"
       },
       {
         "command": "kiwi.searchCases",
@@ -74,8 +79,13 @@
       },
       {
         "command": "kiwi.filterCases",
-        "title": "Kiwi: テストケースをフィルタ",
-        "icon": "$(filter)"
+        "title": "Kiwi: テストケースを探す",
+        "icon": "$(search)"
+      },
+      {
+        "command": "kiwi.filterTestRuns",
+        "title": "Kiwi: テスト実行を探す",
+        "icon": "$(search)"
       },
       {
         "command": "kiwi.openTestRunDashboard",
@@ -84,31 +94,31 @@
       },
       {
         "command": "kiwi.configureBaseUrl",
-        "title": "Kiwi: Configure Base URL"
+        "title": "Kiwi: ベース URL を設定"
       },
       {
         "command": "kiwi.configureUsername",
-        "title": "Kiwi: Configure Username"
+        "title": "Kiwi: ユーザー名を設定"
       },
       {
         "command": "kiwi.configurePassword",
-        "title": "Kiwi: Configure Password"
+        "title": "Kiwi: パスワードを設定"
       },
       {
         "command": "kiwi.clearBaseUrl",
-        "title": "Kiwi: Clear Base URL"
+        "title": "Kiwi: ベース URL を消去"
       },
       {
         "command": "kiwi.clearUsername",
-        "title": "Kiwi: Clear Username"
+        "title": "Kiwi: ユーザー名を消去"
       },
       {
         "command": "kiwi.clearPassword",
-        "title": "Kiwi: Clear Password"
+        "title": "Kiwi: パスワードを消去"
       },
       {
         "command": "kiwi.clearConfiguration",
-        "title": "Kiwi: Clear Configuration"
+        "title": "Kiwi: 設定を消去"
       },
       {
         "command": "kiwi.refreshPlans",
@@ -121,19 +131,27 @@
       },
       {
         "command": "kiwi.showPlanInfo",
-        "title": "テスト計画を表示"
+        "title": "テスト計画の情報を表示"
       },
       {
         "command": "kiwi.createCase",
-        "title": "新規テストケースを作成"
+        "title": "テスト計画に新規テストケースを作成"
       },
       {
         "command": "kiwi.addExistingCaseToPlan",
-        "title": "既存テストケースをこの計画に追加"
+        "title": "テスト計画に既存テストケースを追加"
       },
       {
         "command": "kiwi.removeCaseFromPlan",
         "title": "テストケースをこの計画から外す"
+      },
+      {
+        "command": "kiwi.removeCaseFromPlanFromPlan",
+        "title": "テスト計画からテストケースを外す"
+      },
+      {
+        "command": "kiwi.deleteCase",
+        "title": "テストケースを削除"
       },
       {
         "command": "kiwi.downloadPlanToLocalMirror",
@@ -150,34 +168,44 @@
         "icon": "$(refresh)"
       },
       {
+        "command": "kiwi.checkCaseFreshness",
+        "title": "テストケースの最新状態を確認",
+        "icon": "$(sync)"
+      },
+      {
         "command": "kiwi.showCaseDiff",
-        "title": "差分を表示",
+        "title": "テストケースの差分を表示",
         "icon": "$(diff)"
       },
       {
         "command": "kiwi.showCaseHistoryDiff",
-        "title": "履歴差分を表示",
+        "title": "テストケースの履歴差分を表示",
         "icon": "$(history)"
       },
       {
+        "command": "kiwi.showCaseHistory",
+        "title": "テストケースの履歴一覧を表示",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "kiwi.showCaseInfo",
-        "title": "テストケース情報を表示"
+        "title": "テストケースの情報を表示"
       },
       {
         "command": "kiwi.editCaseMetadata",
-        "title": "テストケースメタデータを編集"
+        "title": "テストケースのメタデータを編集"
       },
       {
         "command": "kiwi.duplicateCase",
-        "title": "このテストケースを複製"
+        "title": "テストケースを複製"
       },
       {
         "command": "kiwi.recordCaseExecutionResult",
-        "title": "実行結果を記録"
+        "title": "テストケースの実行結果を更新"
       },
       {
         "command": "kiwi.manageCaseExecutionsAcrossRuns",
-        "title": "複数のテスト実行を管理"
+        "title": "テストケースの実行を管理"
       },
       {
         "command": "kiwi.showCaseAttachments",
@@ -197,12 +225,12 @@
       },
       {
         "command": "kiwi.openInBrowser",
-        "title": "ブラウザで表示",
+        "title": "テストケースをブラウザで表示",
         "icon": "$(globe)"
       },
       {
         "command": "kiwi.openPlanInBrowser",
-        "title": "ブラウザで表示",
+        "title": "テスト計画をブラウザで表示",
         "icon": "$(globe)"
       },
       {
@@ -227,12 +255,12 @@
       },
       {
         "command": "kiwi.clearRuntimeLogs",
-        "title": "Kiwi: Clear Runtime Logs",
+        "title": "Kiwi: ランタイムログを削除",
         "icon": "$(trash)"
       },
       {
         "command": "kiwi.revealRuntimeLogs",
-        "title": "Kiwi: Reveal Runtime Logs",
+        "title": "Kiwi: ランタイムログを開く",
         "icon": "$(folder-opened)"
       }
     ],
@@ -247,29 +275,29 @@
     "viewsWelcome": [
       {
         "view": "kiwiPlans",
-        "contents": "Kiwi への接続を設定します。\n[Configure Base URL](command:kiwi.configureBaseUrl)\n[Configure Username](command:kiwi.configureUsername)\n[Configure Password](command:kiwi.configurePassword)",
+        "contents": "Kiwi への接続を設定します。\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)",
         "when": "config.kiwi.baseUrl == ''"
       },
       {
         "view": "kiwiPlans",
-        "contents": "Kiwi Plans を開きます。\n[Open Root](command:kiwi.openRoot)\n[Configure Base URL](command:kiwi.configureBaseUrl)\n[Configure Username](command:kiwi.configureUsername)\n[Configure Password](command:kiwi.configurePassword)",
+        "contents": "Kiwi Plans を開きます。\n[ルートを開く](command:kiwi.openRoot)\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)",
         "when": "config.kiwi.baseUrl != ''"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "kiwi.searchCases",
+          "command": "kiwi.filterCases",
           "when": "view == kiwiPlans",
           "group": "navigation@1"
         },
         {
-          "command": "kiwi.filterCases",
+          "command": "kiwi.openTestRunDashboard",
           "when": "view == kiwiPlans",
           "group": "navigation@2"
         },
         {
-          "command": "kiwi.openTestRunDashboard",
+          "command": "kiwi.filterTestRuns",
           "when": "view == kiwiPlans",
           "group": "navigation@3"
         },
@@ -291,12 +319,24 @@
       ],
       "commandPalette": [
         {
+          "command": "kiwi.searchCases",
+          "when": "false"
+        },
+        {
           "command": "kiwi.clearRuntimeLogs",
           "when": "kiwi.runtimeLogsEnabled"
         },
         {
           "command": "kiwi.revealRuntimeLogs",
           "when": "kiwi.runtimeLogsEnabled"
+        },
+        {
+          "command": "kiwi.deleteCase",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.removeCaseFromPlanFromPlan",
+          "when": "false"
         }
       ],
       "view/item/context": [
@@ -331,7 +371,7 @@
           "group": "inspect@4"
         },
         {
-          "command": "kiwi.removeCaseFromPlan",
+          "command": "kiwi.removeCaseFromPlanFromPlan",
           "when": "view == kiwiPlans && viewItem == plan",
           "group": "inspect@5"
         },
@@ -346,14 +386,34 @@
           "group": "mirror@2"
         },
         {
-          "command": "kiwi.showCaseDiff",
+          "command": "kiwi.removeCaseFromPlan",
           "when": "view == kiwiPlans && viewItem == caseDocument",
           "group": "inspect@4"
         },
         {
-          "command": "kiwi.showCaseHistoryDiff",
+          "command": "kiwi.deleteCase",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@4.5"
+        },
+        {
+          "command": "kiwi.checkCaseFreshness",
           "when": "view == kiwiPlans && viewItem == caseDocument",
           "group": "inspect@5"
+        },
+        {
+          "command": "kiwi.showCaseDiff",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@6"
+        },
+        {
+          "command": "kiwi.showCaseHistoryDiff",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@7"
+        },
+        {
+          "command": "kiwi.showCaseHistory",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "inspect@8"
         },
         {
           "command": "kiwi.duplicateCase",
@@ -363,12 +423,12 @@
         {
           "command": "kiwi.recordCaseExecutionResult",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@6"
+          "group": "inspect@9"
         },
         {
           "command": "kiwi.manageCaseExecutionsAcrossRuns",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@7"
+          "group": "inspect@10"
         },
         {
           "command": "kiwi.openInBrowser",
@@ -422,6 +482,11 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "kiwi.checkCaseFreshness",
+          "when": "resourceScheme == kiwi && resourcePath =~ /\\/cases\\/.+\\.md$/",
+          "group": "navigation@2"
+        },
         {
           "command": "kiwi.openInBrowser",
           "when": "resourceScheme == kiwi && resourcePath =~ /\\/cases\\/.+\\.md$/",

@@ -2,9 +2,13 @@ import * as vscode from "vscode";
 import { KiwiAdapter } from "../adapter/types";
 import { KiwiCase, KiwiCaseCreatePayload, KiwiCaseMetadataPatch, KiwiConfig } from "../types";
 import {
+  buildCaseTemplateOptions,
+  CaseTemplateOption,
   CaseMetadataFormState,
   DEFAULT_CASE_BODY_TEMPLATE,
+  DEFAULT_TEMPLATE_ID,
   diffCaseMetadataPatch,
+  resolveCaseTemplateText,
   toCaseCreatePayload,
   toCaseMetadataFormState,
   toEditableCaseMetadata
@@ -62,6 +66,9 @@ type PanelSession = {
   panel: vscode.WebviewPanel;
   formState: CaseMetadataFormState;
   options: MetadataEditorOptions;
+  templateOptions: CaseTemplateOption[];
+  selectedTemplateId: string;
+  templateWarning?: string;
   sourceCase?: KiwiCase;
   sourceText: string;
   isSaving: boolean;
@@ -70,6 +77,9 @@ type PanelSession = {
 type WebviewState = {
   formState: CaseMetadataFormState;
   options: MetadataEditorOptions;
+  templateOptions: CaseTemplateOption[];
+  selectedTemplateId: string;
+  templateWarning?: string;
   isSaving: boolean;
   mode: MetadataEditorMode;
   actionLabel: string;
@@ -122,6 +132,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
       panel,
       formState: initial.formState,
       options: initial.options,
+      templateOptions: initial.templateOptions,
+      selectedTemplateId: initial.selectedTemplateId,
+      templateWarning: initial.templateWarning,
       sourceCase: initial.sourceCase,
       sourceText: initial.sourceText,
       isSaving: false
@@ -148,6 +161,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
   ): {
     formState: CaseMetadataFormState;
     options: MetadataEditorOptions;
+    templateOptions: CaseTemplateOption[];
+    selectedTemplateId: string;
+    templateWarning?: string;
     title: string;
     actionLabel: string;
     mode: MetadataEditorMode;
@@ -162,6 +178,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
         statuses: [...session.options.statuses],
         priorities: [...session.options.priorities]
       },
+      templateOptions: session.templateOptions.map((option) => ({ ...option })),
+      selectedTemplateId: session.selectedTemplateId,
+      templateWarning: session.templateWarning,
       title: session.panel.title,
       actionLabel: actionLabel(session.target.mode),
       mode: session.target.mode
@@ -171,7 +190,8 @@ export class CaseMetadataEditorController implements vscode.Disposable {
   async submitForTest(
     identifier: number,
     formState: CaseMetadataFormState,
-    mode: MetadataEditorMode = "edit"
+    mode: MetadataEditorMode = "edit",
+    selectedTemplateId?: string
   ): Promise<MetadataEditorSaveResult> {
     const session = this.sessions.get(testSessionKey(identifier, mode));
     if (!session) {
@@ -180,7 +200,7 @@ export class CaseMetadataEditorController implements vscode.Disposable {
         `Metadata editor for ${mode}:${identifier} is not open.`
       );
     }
-    return this.save(session, formState);
+    return this.save(session, formState, selectedTemplateId);
   }
 
   private async handleMessage(session: PanelSession, message: unknown): Promise<void> {
@@ -191,9 +211,10 @@ export class CaseMetadataEditorController implements vscode.Disposable {
     try {
       switch (message.type) {
         case "save":
-          await this.save(session, message.formState);
+          await this.save(session, message.formState, message.selectedTemplateId);
           break;
         case "reload":
+          session.selectedTemplateId = message.selectedTemplateId ?? session.selectedTemplateId;
           await this.reload(session);
           break;
         case "cancel":
@@ -213,7 +234,8 @@ export class CaseMetadataEditorController implements vscode.Disposable {
 
   private async save(
     session: PanelSession,
-    formState: CaseMetadataFormState
+    formState: CaseMetadataFormState,
+    selectedTemplateId?: string
   ): Promise<MetadataEditorSaveResult> {
     session.isSaving = true;
     this.pushState(session);
@@ -221,7 +243,7 @@ export class CaseMetadataEditorController implements vscode.Disposable {
       if (session.target.mode === "edit") {
         return await this.saveEdit(session, formState);
       }
-      return await this.saveCreateLike(session, formState);
+      return await this.saveCreateLike(session, formState, selectedTemplateId);
     } finally {
       session.isSaving = false;
       if (this.sessions.has(session.key)) {
@@ -282,9 +304,14 @@ export class CaseMetadataEditorController implements vscode.Disposable {
 
   private async saveCreateLike(
     session: PanelSession,
-    formState: CaseMetadataFormState
+    formState: CaseMetadataFormState,
+    selectedTemplateId?: string
   ): Promise<MetadataEditorSaveResult> {
     const { adapter, config } = await this.clientFactory();
+    if (session.target.mode === "create") {
+      session.selectedTemplateId = selectedTemplateId ?? session.selectedTemplateId;
+      session.sourceText = resolveCaseTemplateText(session.templateOptions, session.selectedTemplateId);
+    }
     const payload = toCaseCreatePayload(formState, session.options, session.sourceText);
     const createdCase = await adapter.createCase(config, session.target.plan.id, payload);
     const creationMode = session.target.mode === "create" ? "create" : "duplicate";
@@ -308,6 +335,12 @@ export class CaseMetadataEditorController implements vscode.Disposable {
     const loaded = await this.loadState(session.target);
     session.formState = loaded.formState;
     session.options = loaded.options;
+    session.templateOptions = loaded.templateOptions;
+    session.selectedTemplateId = resolveSelectedTemplateId(
+      loaded.templateOptions,
+      session.selectedTemplateId
+    );
+    session.templateWarning = loaded.templateWarning;
     session.sourceCase = loaded.sourceCase;
     session.sourceText = loaded.sourceText;
     session.panel.title = panelTitle(session.target, loaded.sourceCase);
@@ -319,6 +352,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
   ): Promise<{
     formState: CaseMetadataFormState;
     options: MetadataEditorOptions;
+    templateOptions: CaseTemplateOption[];
+    selectedTemplateId: string;
+    templateWarning?: string;
     sourceCase?: KiwiCase;
     sourceText: string;
   }> {
@@ -334,6 +370,8 @@ export class CaseMetadataEditorController implements vscode.Disposable {
       return {
         formState: toCaseMetadataFormState(caseData),
         options,
+        templateOptions: [],
+        selectedTemplateId: DEFAULT_TEMPLATE_ID,
         sourceCase: caseData,
         sourceText: target.mode === "duplicate" ? caseData.text : ""
       };
@@ -346,6 +384,7 @@ export class CaseMetadataEditorController implements vscode.Disposable {
       );
     }
 
+    const templateState = await loadTemplateState(adapter, config);
     return {
       formState: {
         summary: "",
@@ -354,6 +393,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
         tagsInput: ""
       },
       options,
+      templateOptions: templateState.templateOptions,
+      selectedTemplateId: DEFAULT_TEMPLATE_ID,
+      templateWarning: templateState.templateWarning,
       sourceText: DEFAULT_CASE_BODY_TEMPLATE
     };
   }
@@ -362,6 +404,9 @@ export class CaseMetadataEditorController implements vscode.Disposable {
     const state: WebviewState = {
       formState: session.formState,
       options: session.options,
+      templateOptions: session.templateOptions,
+      selectedTemplateId: session.selectedTemplateId,
+      templateWarning: session.templateWarning,
       isSaving: session.isSaving,
       mode: session.target.mode,
       actionLabel: actionLabel(session.target.mode)
@@ -378,6 +423,9 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
   const bootstrap = JSON.stringify({
     formState: session.formState,
     options: session.options,
+    templateOptions: session.templateOptions,
+    selectedTemplateId: session.selectedTemplateId,
+    templateWarning: session.templateWarning,
     isSaving: session.isSaving,
     mode: session.target.mode,
     actionLabel: actionLabel(session.target.mode)
@@ -424,6 +472,10 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         color: var(--vscode-descriptionForeground);
         font-size: 12px;
       }
+      .template-warning {
+        color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-descriptionForeground));
+        font-size: 12px;
+      }
       .actions {
         display: flex;
         gap: 8px;
@@ -462,6 +514,11 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       <label>Tags
         <input id="tagsInput" type="text" placeholder="smoke, regression" />
       </label>
+      <label id="templateLabel">Template
+        <select id="template"></select>
+        <span class="description">選択したテンプレートの本文を初期本文として作成します。</span>
+      </label>
+      <div class="template-warning" id="templateWarning"></div>
       <div class="error" id="error"></div>
       <div class="actions">
         <button class="primary" id="save" type="submit">保存</button>
@@ -476,6 +533,9 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
       const status = document.getElementById('status');
       const priority = document.getElementById('priority');
       const tagsInput = document.getElementById('tagsInput');
+      const templateLabel = document.getElementById('templateLabel');
+      const template = document.getElementById('template');
+      const templateWarning = document.getElementById('templateWarning');
       const description = document.getElementById('description');
       const saveButton = document.getElementById('save');
       const reloadButton = document.getElementById('reload');
@@ -494,9 +554,20 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         }
       }
 
+      function renderTemplateSelect(select, options, current) {
+        select.innerHTML = '';
+        for (const item of options) {
+          const option = document.createElement('option');
+          option.value = item.id;
+          option.textContent = item.name;
+          option.selected = item.id === current;
+          select.appendChild(option);
+        }
+      }
+
       function renderDescription(mode) {
         if (mode === 'create') {
-          return 'metadata を入力して新規テストケースを作成します。本文は作成後に Case Document で編集します。';
+          return 'metadata を入力してテスト計画に新規テストケースを作成します。本文は作成後に Case Document で編集します。';
         }
         if (mode === 'duplicate') {
           return '元の本文を複製して新しいテストケースを作成します。本文は作成後に Case Document で編集します。';
@@ -509,6 +580,10 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
         tagsInput.value = state.formState.tagsInput;
         renderSelect(status, state.options.statuses, state.formState.status);
         renderSelect(priority, state.options.priorities, state.formState.priority);
+        renderTemplateSelect(template, state.templateOptions || [], state.selectedTemplateId);
+        templateLabel.style.display = state.mode === 'create' ? 'grid' : 'none';
+        templateWarning.style.display = state.mode === 'create' && state.templateWarning ? 'block' : 'none';
+        templateWarning.textContent = state.templateWarning || '';
         description.textContent = renderDescription(state.mode);
         saveButton.disabled = state.isSaving;
         saveButton.textContent = state.actionLabel;
@@ -525,12 +600,13 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
             status: status.value,
             priority: priority.value,
             tagsInput: tagsInput.value
-          }
+          },
+          selectedTemplateId: template.value
         });
       });
       reloadButton.addEventListener('click', () => {
         error.textContent = '';
-        vscode.postMessage({ type: 'reload' });
+        vscode.postMessage({ type: 'reload', selectedTemplateId: template.value });
       });
       cancelButton.addEventListener('click', () => {
         vscode.postMessage({ type: 'cancel' });
@@ -553,15 +629,21 @@ function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): stri
 function isMessage(
   value: unknown
 ): value is
-  | { type: "save"; formState: CaseMetadataFormState }
-  | { type: "reload" }
+  | { type: "save"; formState: CaseMetadataFormState; selectedTemplateId?: string }
+  | { type: "reload"; selectedTemplateId?: string }
   | { type: "cancel" } {
   if (!value || typeof value !== "object") {
     return false;
   }
   const type = (value as { type?: unknown }).type;
-  if (type === "reload" || type === "cancel") {
+  if (type === "cancel") {
     return true;
+  }
+  if (type === "reload") {
+    return (
+      (value as { selectedTemplateId?: unknown }).selectedTemplateId === undefined ||
+      typeof (value as { selectedTemplateId?: unknown }).selectedTemplateId === "string"
+    );
   }
   if (type === "save") {
     const formState = (value as { formState?: CaseMetadataFormState }).formState;
@@ -570,10 +652,37 @@ function isMessage(
         typeof formState.summary === "string" &&
         typeof formState.status === "string" &&
         typeof formState.priority === "string" &&
-        typeof formState.tagsInput === "string"
+        typeof formState.tagsInput === "string" &&
+        ((value as { selectedTemplateId?: unknown }).selectedTemplateId === undefined ||
+          typeof (value as { selectedTemplateId?: unknown }).selectedTemplateId === "string")
     );
   }
   return false;
+}
+
+async function loadTemplateState(
+  adapter: KiwiAdapter,
+  config: KiwiConfig
+): Promise<{ templateOptions: CaseTemplateOption[]; templateWarning?: string }> {
+  try {
+    return {
+      templateOptions: buildCaseTemplateOptions(await adapter.listCaseTemplates(config))
+    };
+  } catch (error) {
+    return {
+      templateOptions: buildCaseTemplateOptions([]),
+      templateWarning: `Kiwi のテンプレートを取得できませんでした。既定テンプレートで作成できます。`
+    };
+  }
+}
+
+function resolveSelectedTemplateId(
+  templateOptions: CaseTemplateOption[],
+  selectedTemplateId: string
+): string {
+  return templateOptions.some((option) => option.id === selectedTemplateId)
+    ? selectedTemplateId
+    : DEFAULT_TEMPLATE_ID;
 }
 
 function sessionKey(target: MetadataEditorTarget): string {
@@ -604,11 +713,11 @@ function actionLabel(mode: MetadataEditorMode): string {
 function panelTitle(target: MetadataEditorTarget, sourceCase?: KiwiCase): string {
   switch (target.mode) {
     case "create":
-      return `新規テストケースを作成: ${target.plan.name}`;
+      return `テスト計画に新規テストケースを作成: ${target.plan.name}`;
     case "duplicate":
-      return `このテストケースを複製: ${sourceCase?.summary ?? target.caseRef.summary}`;
+      return `テストケースを複製: ${sourceCase?.summary ?? target.caseRef.summary}`;
     default:
-      return `テストケースメタデータを編集: ${sourceCase?.summary ?? target.caseRef.summary}`;
+      return `テストケースのメタデータを編集: ${sourceCase?.summary ?? target.caseRef.summary}`;
   }
 }
 

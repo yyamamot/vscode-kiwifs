@@ -8,7 +8,7 @@ SHELL := /bin/sh
 .PHONY: help status tree install typecheck lint format build \
 	package vsix-package vsix-install vsix-uninstall \
 	test test-unit test-integration test-integration-host \
-	check verify clean clear-runtime-logs f5-note real-kiwi-note env-example
+	check verify clean distclean clear-runtime-logs f5-note real-kiwi-note env-example
 
 help:
 	@echo "Available targets:"
@@ -30,7 +30,8 @@ help:
 	@echo "  make test-integration-host - run extension host integration tests"
 	@echo "  make check                 - run typecheck, lint, and unit tests"
 	@echo "  make verify                - run build and all documented test layers"
-	@echo "  make clean                 - remove common local artifacts"
+	@echo "  make clean                 - remove build and local runtime artifacts"
+	@echo "  make distclean             - remove clean targets plus installed dependencies"
 	@echo "  make clear-runtime-logs    - remove runtime JSONL files"
 	@echo "  make env-example           - show key .env.example variables"
 	@echo "  make f5-note               - show F5 debug usage"
@@ -90,7 +91,10 @@ check: typecheck lint test-unit
 verify: build test-unit test-integration test-integration-host
 
 clean:
-	rm -rf dist out coverage .kiwi-logs .vscode-test node_modules
+	rm -rf dist out coverage .kiwi-logs .vscode-test
+
+distclean: clean
+	rm -rf node_modules
 
 clear-runtime-logs:
 	mkdir -p .kiwi-logs/runtime

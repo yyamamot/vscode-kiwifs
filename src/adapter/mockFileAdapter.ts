@@ -8,6 +8,8 @@ import {
   KiwiCaseExecution,
   KiwiCaseCreatePayload,
   KiwiCaseMetadataPatch,
+  KiwiCaseSearchMode,
+  KiwiCaseSearchResult,
   KiwiBuildOption,
   KiwiExecutionStatus,
   KiwiExecutionUpdatePatch,
@@ -179,6 +181,46 @@ export class MockFileAdapter implements KiwiAdapter {
     return ["P1", "P2", "P3"];
   }
 
+  async listCaseTemplates(config: KiwiConfig) {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    if (state.failures?.templates) {
+      throw new KiwiError("ApiUnsupported", "Template API is not available.");
+    }
+    return (state.templates ?? []).map((template) => ({ ...template }));
+  }
+
+  async searchCases(
+    config: KiwiConfig,
+    input: { query: string; mode: KiwiCaseSearchMode }
+  ): Promise<KiwiCaseSearchResult[]> {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    const query = input.query.trim();
+    if (!query) {
+      return [];
+    }
+    const normalizedQuery = query.toLocaleLowerCase();
+    const numericQuery = /^\d+$/.test(query) ? Number(query) : undefined;
+    return Object.values(state.cases)
+      .filter((item) => {
+        if (input.mode === "body") {
+          return item.text.toLocaleLowerCase().includes(normalizedQuery);
+        }
+        return (
+          (numericQuery !== undefined && item.id === numericQuery) ||
+          item.summary.toLocaleLowerCase().includes(normalizedQuery)
+        );
+      })
+      .sort((left, right) => left.id - right.id)
+      .map((item) => ({
+        caseId: item.id,
+        summary: item.summary,
+        textSnippet:
+          input.mode === "body" ? buildTextSnippet(item.text, normalizedQuery) : undefined
+      }));
+  }
+
   async listTestRuns(config: KiwiConfig): Promise<KiwiTestRun[]> {
     const state = await this.authorize(config);
     this.ensureConnected(state);
@@ -202,12 +244,16 @@ export class MockFileAdapter implements KiwiAdapter {
       .map((item) => ({ ...item }));
   }
 
-  async searchTestRuns(config: KiwiConfig, input: { query: string; planId?: number }): Promise<KiwiTestRun[]> {
+  async searchTestRuns(
+    config: KiwiConfig,
+    input: { query: string; planId?: number; build?: string }
+  ): Promise<KiwiTestRun[]> {
     const state = await this.authorize(config);
     this.ensureConnected(state);
     const query = input.query.trim().toLowerCase();
     return Object.values(state.testRuns ?? {})
       .filter((item) => input.planId === undefined || item.planId === input.planId)
+      .filter((item) => input.build === undefined || item.build === input.build)
       .filter((item) => {
         if (!query) {
           return true;
@@ -455,6 +501,35 @@ export class MockFileAdapter implements KiwiAdapter {
     }
   }
 
+  async deleteCase(config: KiwiConfig, caseId: number): Promise<void> {
+    const state = await this.authorize(config);
+    this.ensureConnected(state);
+    this.lookupCase(state, caseId);
+    if (state.failures?.validation) {
+      throw new KiwiError("ValidationFailed", "Mock validation failure.");
+    }
+
+    delete state.cases[String(caseId)];
+    delete state.attachments[String(caseId)];
+    delete state.histories[String(caseId)];
+
+    for (const planId of Object.keys(state.planCases)) {
+      state.planCases[planId] = (state.planCases[planId] ?? []).filter(
+        (currentCaseId) => currentCaseId !== caseId
+      );
+    }
+
+    if (state.executions) {
+      for (const executionId of Object.keys(state.executions)) {
+        if (state.executions[executionId]?.caseId === caseId) {
+          delete state.executions[executionId];
+        }
+      }
+    }
+
+    await saveMockState(this.statePath, state);
+  }
+
   async updateCaseText(config: KiwiConfig, caseId: number, text: string) {
     const state = await this.authorize(config);
     this.ensureConnected(state);
@@ -616,6 +691,17 @@ function normalizeTags(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((left, right) =>
     left.localeCompare(right)
   );
+}
+
+function buildTextSnippet(text: string, normalizedQuery: string): string {
+  const normalizedText = text.toLocaleLowerCase();
+  const index = normalizedText.indexOf(normalizedQuery);
+  if (index === -1) {
+    return text.slice(0, 120);
+  }
+  const start = Math.max(0, index - 40);
+  const end = Math.min(text.length, index + normalizedQuery.length + 80);
+  return `${start > 0 ? "..." : ""}${text.slice(start, end)}${end < text.length ? "..." : ""}`;
 }
 
 function resolveDefaultCategory(state: MockState, planId: number): string {
