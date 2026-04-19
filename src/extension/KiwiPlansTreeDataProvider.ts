@@ -37,6 +37,14 @@ export type CaseFreshnessDecoration = {
   checkedAt: number;
 };
 
+export type CaseCompareSnapshotStatus = "LocalChanged" | "RemoteChanged" | "Conflict";
+
+type CaseCompareSnapshotDecoration = {
+  status: CaseCompareSnapshotStatus;
+  description: "Local Changes" | "Remote Changes" | "Conflicts";
+  message: string;
+};
+
 const STALE_CASE_ICON = new vscode.ThemeIcon(
   "warning",
   new vscode.ThemeColor("problemsWarningIcon.foreground")
@@ -58,6 +66,7 @@ export class KiwiPlansTreeDataProvider
   private readonly planListCache = new Map<number, KiwiPlan>();
   private readonly caseListCache = new Map<number, PlanCaseRef[]>();
   private readonly staleCases = new Map<number, CaseFreshnessDecoration>();
+  private readonly compareSnapshotCases = new Map<number, CaseCompareSnapshotDecoration>();
 
   constructor(
     private readonly clientFactory: () => Promise<KiwiClient>,
@@ -88,6 +97,24 @@ export class KiwiPlansTreeDataProvider
     }
   }
 
+  setCompareSnapshot(
+    cases: ReadonlyArray<{ caseId: number; status: CaseCompareSnapshotStatus }>
+  ): void {
+    this.compareSnapshotCases.clear();
+    for (const entry of cases) {
+      this.compareSnapshotCases.set(entry.caseId, toCompareSnapshotDecoration(entry.status));
+    }
+    this.emitter.fire(undefined);
+  }
+
+  clearCompareSnapshot(): void {
+    if (this.compareSnapshotCases.size === 0) {
+      return;
+    }
+    this.compareSnapshotCases.clear();
+    this.emitter.fire(undefined);
+  }
+
   async getTreeItem(element: KiwiPlansTreeNode): Promise<vscode.TreeItem> {
     switch (element.kind) {
       case "plan": {
@@ -112,6 +139,14 @@ export class KiwiPlansTreeDataProvider
           title: "Open",
           arguments: [uri]
         };
+        const compareSnapshot = this.compareSnapshotCases.get(element.caseRef.id);
+        if (compareSnapshot) {
+          item.description = compareSnapshot.description;
+          item.tooltip = `${caseFileName(element.caseRef)}\n${compareSnapshot.message}`;
+          item.iconPath = STALE_CASE_ICON;
+          return item;
+        }
+
         const stale = this.staleCases.get(element.caseRef.id);
         if (stale) {
           item.description = "remote changed";
@@ -293,6 +328,32 @@ export class KiwiPlansTreeDataProvider
       void vscode.window.showErrorMessage(humanMessage(error));
       return [];
     }
+  }
+}
+
+function toCompareSnapshotDecoration(
+  status: CaseCompareSnapshotStatus
+): CaseCompareSnapshotDecoration {
+  switch (status) {
+    case "LocalChanged":
+      return {
+        status,
+        description: "Local Changes",
+        message: "local mirror に未反映変更があります。差分を確認するか、ローカルミラーを反映してください。"
+      };
+    case "RemoteChanged":
+      return {
+        status,
+        description: "Remote Changes",
+        message: "remote が更新されています。差分を確認するか、Take Remote Changes を実行してください。"
+      };
+    case "Conflict":
+      return {
+        status,
+        description: "Conflicts",
+        message:
+          "local mirror と remote の両方に変更があります。差分を確認してから、ローカルミラーを反映または Take Remote Changes を実行してください。"
+      };
   }
 }
 

@@ -47,7 +47,18 @@ import { renderPlanLocalMirrorStatusDocument } from "./renderPlanLocalMirrorStat
 import { caseFileName, parseNumericPrefix, planDirectoryName } from "../domain/pathCodec";
 import { buildCaseBrowserUri } from "./buildCaseBrowserUri";
 import { buildPlanBrowserUri } from "./buildPlanBrowserUri";
-import { LocalMirrorService } from "./localMirrorService";
+import {
+  LocalMirrorCompareResult,
+  LocalMirrorScmComparableCase,
+  LocalMirrorService,
+  toLocalMirrorScmResourceStatus
+} from "./localMirrorService";
+import {
+  createKiwiLocalMirrorSourceControl,
+  type LocalMirrorScmResource,
+  type LocalMirrorScmSnapshotTarget,
+  type UriLike
+} from "./localMirrorSourceControl";
 import {
   AttachmentQuickPickItem,
   buildAttachmentQuickPickItems
@@ -233,6 +244,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const planLocalMirrorStatusProvider = new PlanLocalMirrorStatusDocumentProvider();
   const caseAttachmentsProvider = new CaseAttachmentsDocumentProvider();
   const caseAttachmentContentProvider = new CaseAttachmentContentProvider();
+  const localMirrorSourceControl = createKiwiLocalMirrorSourceControl();
+  context.subscriptions.push(localMirrorSourceControl.sourceControl as unknown as vscode.Disposable);
   context.subscriptions.push(
     vscode.workspace.registerTextDocumentContentProvider("kiwi-info", caseInfoProvider)
   );
@@ -263,6 +276,199 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       caseAttachmentContentProvider
     )
   );
+
+  const buildLocalMirrorScmResources = (
+    comparableCases: LocalMirrorScmComparableCase[]
+  ): LocalMirrorScmResource[] => {
+    const resources: LocalMirrorScmResource[] = [];
+    for (const comparableCase of comparableCases) {
+      const scmStatus = toLocalMirrorScmResourceStatus(comparableCase.compare.status);
+      if (!scmStatus) {
+        continue;
+      }
+      const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+      const remoteUri = localMirrorDiffUri(
+        "remote",
+        comparableCase.plan,
+        comparableCase.caseRef,
+        requestId
+      );
+      caseDiffProvider.setContent(
+        remoteUri,
+        renderCaseDiffDocument({ body: comparableCase.compare.remoteBody })
+      );
+      resources.push({
+        plan: comparableCase.plan,
+        caseRef: comparableCase.caseRef,
+        status: scmStatus,
+        localPath: comparableCase.compare.localPath,
+        localUri: toUriLike(vscode.Uri.file(comparableCase.compare.localPath)),
+        remoteUri: toUriLike(remoteUri),
+        diffTitle: renderLocalMirrorDiffTitle(comparableCase.caseRef.summary)
+      });
+    }
+    return resources;
+  };
+
+  const applyLocalMirrorScmState = (
+    target: LocalMirrorScmSnapshotTarget,
+    comparableCases: LocalMirrorScmComparableCase[]
+  ): LocalMirrorScmResource[] => {
+    const resources = buildLocalMirrorScmResources(comparableCases);
+    if (resources.length === 0) {
+      localMirrorSourceControl.clear();
+      treeDataProvider.clearCompareSnapshot();
+      return [];
+    }
+    localMirrorSourceControl.setState({
+      target,
+      resources
+    });
+    treeDataProvider.setCompareSnapshot(
+      resources.map((resource) => ({
+        caseId: resource.caseRef.id,
+        status: resource.status
+      }))
+    );
+    return resources;
+  };
+
+  const refreshLocalMirrorScmSnapshot = async (
+    target: LocalMirrorScmSnapshotTarget,
+    announceErrors = false
+  ) => {
+    const service = createLocalMirrorService(clientFactory);
+    if (!service) {
+      localMirrorSourceControl.clear();
+      treeDataProvider.clearCompareSnapshot();
+      return undefined;
+    }
+
+    try {
+      if (target.kind === "case") {
+        const compare = await service.compareCase(target);
+        return applyLocalMirrorScmState(target, [
+          {
+            plan: target.plan,
+            caseRef: target.caseRef,
+            compare
+          }
+        ]);
+      }
+
+      const snapshot = await service.getPlanMirrorSnapshot(target.plan);
+      return applyLocalMirrorScmState(target, snapshot.comparableCases);
+    } catch (error) {
+      localMirrorSourceControl.clear();
+      treeDataProvider.clearCompareSnapshot();
+      if (announceErrors) {
+        void vscode.window.showErrorMessage(humanMessage(error));
+      }
+      return undefined;
+    }
+  };
+
+  const openPlanLocalMirrorStatusReport = async (
+    target: Extract<KiwiPlansTreeNode, { kind: "plan" }>
+  ) => {
+    const service = createLocalMirrorService(clientFactory);
+    if (!service) {
+      return undefined;
+    }
+
+    const snapshot = await service.getPlanMirrorSnapshot(target.plan);
+    const uri = planLocalMirrorStatusUri(target.plan);
+    planLocalMirrorStatusProvider.setContent(
+      uri,
+      renderPlanLocalMirrorStatusDocument({
+        plan: target.plan,
+        rows: snapshot.rows
+      })
+    );
+    await vscode.commands.executeCommand("vscode.open", uri);
+    return {
+      uri,
+      snapshot
+    };
+  };
+
+  const toChangesEditorUri = (uri: UriLike | vscode.Uri) =>
+    uri instanceof vscode.Uri
+      ? uri
+      : uri.scheme === "file"
+        ? vscode.Uri.file(uri.fsPath ?? uri.path)
+        : vscode.Uri.parse(`${uri.scheme}:${uri.path}`);
+
+  const buildComparableLocalMirrorDiffResource = (
+    comparableCase: LocalMirrorScmComparableCase
+  ) => {
+    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    const localUri = vscode.Uri.file(comparableCase.compare.localPath);
+    const remoteUri = localMirrorDiffUri(
+      "remote",
+      comparableCase.plan,
+      comparableCase.caseRef,
+      requestId
+    );
+    const title = renderLocalMirrorDiffTitle(comparableCase.caseRef.summary);
+    caseDiffProvider.setContent(
+      remoteUri,
+      renderCaseDiffDocument({ body: comparableCase.compare.remoteBody })
+    );
+    return {
+      caseId: comparableCase.caseRef.id,
+      status: comparableCase.compare.status,
+      localUri: localUri.toString(),
+      remoteUri: remoteUri.toString(),
+      title,
+      resource: [localUri, remoteUri, localUri] as const
+    };
+  };
+
+  const buildPlanLocalMirrorChangesTitle = (plan: { name: string }) =>
+    `Local Mirror Compare: ${plan.name}`;
+
+  const openLocalMirrorDiff = async (
+    target: Extract<KiwiPlansTreeNode, { kind: "case" }>,
+    compare: LocalMirrorCompareResult
+  ) => {
+    const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+    const localUri = vscode.Uri.file(compare.localPath);
+    const remoteUri = localMirrorDiffUri(
+      "remote",
+      target.plan,
+      target.caseRef,
+      requestId
+    );
+    const title = renderLocalMirrorDiffTitle(target.caseRef.summary);
+    caseDiffProvider.setContent(
+      remoteUri,
+      renderCaseDiffDocument({ body: compare.remoteBody })
+    );
+    await vscode.commands.executeCommand("vscode.diff", remoteUri, localUri, title, {
+      preview: false
+    });
+    return {
+      localUri: localUri.toString(),
+      remoteUri: remoteUri.toString(),
+      title,
+      status: compare.status,
+      localPath: compare.localPath
+    };
+  };
+
+  const openPlanLocalMirrorChanges = async (
+    target: Extract<KiwiPlansTreeNode, { kind: "plan" }>,
+    comparableCases: LocalMirrorScmComparableCase[]
+  ) => {
+    const openedDiffs = comparableCases.map(buildComparableLocalMirrorDiffResource);
+    await vscode.commands.executeCommand(
+      "vscode.changes",
+      buildPlanLocalMirrorChangesTitle(target.plan),
+      openedDiffs.map((entry) => entry.resource.map(toChangesEditorUri))
+    );
+    return openedDiffs.map(({ resource: _, ...entry }) => entry);
+  };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("kiwi.openRoot", async () => {
@@ -1197,24 +1403,75 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       "kiwi.showPlanLocalMirrorStatus",
       async (target?: KiwiPlansTreeNode) => {
         const resolvedTarget = resolvePlanMirrorTarget(target);
-        const service = createLocalMirrorService(clientFactory);
-        if (!resolvedTarget || !service) {
+        if (!resolvedTarget) {
           return undefined;
         }
 
         try {
-          const rows = await service.getPlanMirrorStatus(resolvedTarget.plan);
-          const uri = planLocalMirrorStatusUri(resolvedTarget.plan);
-          planLocalMirrorStatusProvider.setContent(
-            uri,
-            renderPlanLocalMirrorStatusDocument({
-              plan: resolvedTarget.plan,
-              rows
-            })
-          );
-          await vscode.commands.executeCommand("vscode.open", uri);
-          return uri.toString();
+          const result = await openPlanLocalMirrorStatusReport(resolvedTarget);
+          return result?.uri.toString();
         } catch (error) {
+          void vscode.window.showErrorMessage(humanMessage(error));
+          return undefined;
+        }
+      }
+    ),
+    vscode.commands.registerCommand(
+      "kiwi.comparePlanLocalMirror",
+      async (target?: KiwiPlansTreeNode) => {
+        const resolvedTarget = resolvePlanMirrorTarget(target);
+        if (!resolvedTarget) {
+          return undefined;
+        }
+
+        try {
+          const service = createLocalMirrorService(clientFactory);
+          if (!service) {
+            localMirrorSourceControl.clear();
+            treeDataProvider.clearCompareSnapshot();
+            return undefined;
+          }
+
+          const snapshot = await service.getPlanMirrorSnapshot(resolvedTarget.plan);
+          const resources = applyLocalMirrorScmState(
+            {
+              kind: "plan",
+              plan: resolvedTarget.plan
+            },
+            snapshot.comparableCases
+          );
+          if (resources.length === 0) {
+            void vscode.window.showInformationMessage(
+              "No local mirror diffs were found for this plan. Use 'ローカルミラー状態を表示' to inspect unchanged or missing cases."
+            );
+            localMirrorSourceControl.clear();
+            treeDataProvider.clearCompareSnapshot();
+            return {
+              openedDiffs: []
+            };
+          }
+
+          const skippedRows = snapshot.rows.filter(
+            (row) => row.status === "missing locally" || row.status === "missing remote"
+          );
+          const openedDiffs = await openPlanLocalMirrorChanges(
+            resolvedTarget,
+            snapshot.comparableCases
+          );
+          if (skippedRows.length > 0) {
+            void vscode.window.showWarningMessage(
+              `Some cases were excluded from diff because they are not comparable: ${skippedRows
+                .map((row) => `${row.caseId}=${row.status}`)
+                .join(", ")}`
+            );
+          }
+          return {
+            title: buildPlanLocalMirrorChangesTitle(resolvedTarget.plan),
+            openedDiffs
+          };
+        } catch (error) {
+          localMirrorSourceControl.clear();
+          treeDataProvider.clearCompareSnapshot();
           void vscode.window.showErrorMessage(humanMessage(error));
           return undefined;
         }
@@ -1293,27 +1550,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       try {
         const result = await service.compareCase(resolvedTarget);
-        const requestId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
-        const localUri = localMirrorDiffUri("local", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
-        const remoteUri = localMirrorDiffUri("remote", resolvedTarget.plan, resolvedTarget.caseRef, requestId);
-        const title = `${resolvedTarget.caseRef.summary} (Local Mirror ↔ Remote)`;
-        caseDiffProvider.setContent(localUri, renderCaseDiffDocument({ body: result.localBody }));
-        caseDiffProvider.setContent(remoteUri, renderCaseDiffDocument({ body: result.remoteBody }));
-        await vscode.commands.executeCommand("vscode.diff", remoteUri, localUri, title, {
-          preview: false
-        });
+        const opened = await openLocalMirrorDiff(resolvedTarget, result);
+        applyLocalMirrorScmState(resolvedTarget, [
+          {
+            plan: resolvedTarget.plan,
+            caseRef: resolvedTarget.caseRef,
+            compare: result
+          }
+        ]);
         void vscode.window.showInformationMessage(`Local mirror status: ${result.status}.`);
-        return {
-          localUri: localUri.toString(),
-          remoteUri: remoteUri.toString(),
-          title,
-          status: result.status,
-          localPath: result.localPath
-        };
+        return opened;
+      } catch (error) {
+        localMirrorSourceControl.clear();
+        treeDataProvider.clearCompareSnapshot();
+        void vscode.window.showErrorMessage(humanMessage(error));
+        return undefined;
+      }
+    }),
+    vscode.commands.registerCommand("kiwi.openLocalMirrorScmDiff", async (resource?: LocalMirrorScmResource) => {
+      const service = createLocalMirrorService(clientFactory);
+      if (!resource || !service) {
+        return undefined;
+      }
+
+      const target: Extract<KiwiPlansTreeNode, { kind: "case" }> = {
+        kind: "case",
+        plan: resource.plan,
+        caseRef: resource.caseRef
+      };
+
+      try {
+        const compare = await service.compareCase(target);
+        return openLocalMirrorDiff(target, compare);
       } catch (error) {
         void vscode.window.showErrorMessage(humanMessage(error));
         return undefined;
       }
+    }),
+    vscode.commands.registerCommand("kiwi.scmCompareLocalMirrorAgain", async () => {
+      const state = localMirrorSourceControl.getState();
+      if (!state) {
+        void vscode.window.showInformationMessage("Run local mirror compare first.");
+        return undefined;
+      }
+
+      return state.target.kind === "case"
+        ? vscode.commands.executeCommand("kiwi.compareLocalMirror", state.target)
+        : vscode.commands.executeCommand("kiwi.comparePlanLocalMirror", state.target);
     }),
     vscode.commands.registerCommand("kiwi.uploadLocalMirror", async (target?: KiwiPlansTreeNode) => {
       const resolvedTarget = resolveMirrorTarget(target);
@@ -1326,6 +1609,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = await service.uploadCase(resolvedTarget);
         const refreshResult = await refreshOpenedCaseDocumentAfterLocalMirrorUpload(
           provider,
+          treeDataProvider,
           resolvedTarget
         );
         if (refreshResult === "refreshed") {
@@ -1345,6 +1629,193 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return undefined;
       }
     }),
+    vscode.commands.registerCommand("kiwi.scmUploadLocalMirrorResources", async (...args: unknown[]) => {
+      const service = createLocalMirrorService(clientFactory);
+      const state = localMirrorSourceControl.getState();
+      const requestedResources = dedupeLocalMirrorScmResources(
+        localMirrorSourceControl.getResourcesFromCommandArgs(args) ??
+          state?.resources.filter((resource) => resource.status === "LocalChanged") ??
+          []
+      );
+      if (!service || !state) {
+        return undefined;
+      }
+
+      const skippedResources = requestedResources.filter((resource) => resource.status !== "LocalChanged");
+      const targetResources = requestedResources.filter((resource) => resource.status === "LocalChanged");
+
+      if (targetResources.length === 0) {
+        void vscode.window.showInformationMessage(
+          skippedResources.length > 0
+            ? formatLocalMirrorScmSkippedSummary("Upload Local Changes", skippedResources.length)
+            : "No local changes to upload."
+        );
+        return [];
+      }
+
+      let uploaded = 0;
+      let refreshed = 0;
+      let dirty = 0;
+      let failed = 0;
+      for (const resource of targetResources) {
+        try {
+          await service.uploadCase({
+            plan: resource.plan,
+            caseRef: resource.caseRef
+          });
+          const refreshResult = await refreshOpenedCaseDocumentAfterLocalMirrorUpload(
+            provider,
+            treeDataProvider,
+            {
+              kind: "case",
+              plan: resource.plan,
+              caseRef: resource.caseRef
+            }
+          );
+          uploaded += 1;
+          if (refreshResult === "refreshed") {
+            refreshed += 1;
+          } else if (refreshResult === "dirty") {
+            dirty += 1;
+          }
+        } catch {
+          failed += 1;
+        }
+      }
+
+      await refreshLocalMirrorScmSnapshot(state.target);
+      const summary = [
+        `Upload Local Changes finished. uploaded=${uploaded}, refreshed=${refreshed}, dirty=${dirty}, failed=${failed}`,
+        skippedResources.length > 0
+          ? formatLocalMirrorScmSkippedSummary("Upload Local Changes", skippedResources.length)
+          : undefined
+      ].filter((line): line is string => Boolean(line)).join("\n");
+      if (failed > 0 || skippedResources.length > 0) {
+        void vscode.window.showWarningMessage(summary);
+      } else {
+        void vscode.window.showInformationMessage(summary);
+      }
+      return {
+        uploaded,
+        refreshed,
+        dirty,
+        failed,
+        skipped: skippedResources.length
+      };
+    }),
+    vscode.commands.registerCommand("kiwi.uploadPlanLocalMirror", async (target?: KiwiPlansTreeNode) => {
+      const resolvedTarget = resolvePlanMirrorTarget(target);
+      const service = createLocalMirrorService(clientFactory);
+      if (!resolvedTarget || !service) {
+        return undefined;
+      }
+
+      try {
+        const result = await service.uploadPlanCases(resolvedTarget.plan);
+        let refreshed = 0;
+        let dirty = 0;
+        for (const uploadedTarget of result.uploadedTargets) {
+          const refreshResult = await refreshOpenedCaseDocumentAfterLocalMirrorUpload(
+            provider,
+            treeDataProvider,
+            {
+              kind: "case",
+              plan: uploadedTarget.plan,
+              caseRef: uploadedTarget.caseRef
+            }
+          );
+          if (refreshResult === "refreshed") {
+            refreshed += 1;
+          } else if (refreshResult === "dirty") {
+            dirty += 1;
+          }
+        }
+
+        await refreshLocalMirrorScmSnapshot({
+          kind: "plan",
+          plan: resolvedTarget.plan
+        });
+        const summary = `Plan local mirror upload finished. uploaded=${result.uploaded}, refreshed=${refreshed}, dirty=${dirty}, skipped=${result.skipped}, failed=${result.failed}`;
+        if (result.failed > 0 || result.skipped > 0 || dirty > 0) {
+          void vscode.window.showWarningMessage(summary);
+        } else {
+          void vscode.window.showInformationMessage(summary);
+        }
+        return {
+          uploaded: result.uploaded,
+          refreshed,
+          dirty,
+          skipped: result.skipped,
+          failed: result.failed
+        };
+      } catch (error) {
+        void vscode.window.showErrorMessage(humanMessage(error));
+        return undefined;
+      }
+    }),
+    vscode.commands.registerCommand(
+      "kiwi.scmTakeRemoteLocalMirrorResources",
+      async (...args: unknown[]) => {
+        const service = createLocalMirrorService(clientFactory);
+        const state = localMirrorSourceControl.getState();
+        const requestedResources = dedupeLocalMirrorScmResources(
+          localMirrorSourceControl.getResourcesFromCommandArgs(args) ??
+            state?.resources.filter((resource) => resource.status === "RemoteChanged") ??
+            []
+        );
+        if (!service || !state) {
+          return undefined;
+        }
+
+        const skippedResources = requestedResources.filter(
+          (resource) => resource.status !== "RemoteChanged"
+        );
+        const targetResources = requestedResources.filter(
+          (resource) => resource.status === "RemoteChanged"
+        );
+
+        if (targetResources.length === 0) {
+          void vscode.window.showInformationMessage(
+            skippedResources.length > 0
+              ? formatLocalMirrorScmSkippedSummary("Take Remote Changes", skippedResources.length)
+              : "No remote changes to take."
+          );
+          return [];
+        }
+
+        let taken = 0;
+        let failed = 0;
+        for (const resource of targetResources) {
+          try {
+            await service.takeRemoteChanges({
+              plan: resource.plan,
+              caseRef: resource.caseRef
+            });
+            taken += 1;
+          } catch {
+            failed += 1;
+          }
+        }
+
+        await refreshLocalMirrorScmSnapshot(state.target);
+        const summary = [
+          `Take Remote Changes finished. taken=${taken}, failed=${failed}`,
+          skippedResources.length > 0
+            ? formatLocalMirrorScmSkippedSummary("Take Remote Changes", skippedResources.length)
+            : undefined
+        ].filter((line): line is string => Boolean(line)).join("\n");
+        if (failed > 0 || skippedResources.length > 0) {
+          void vscode.window.showWarningMessage(summary);
+        } else {
+          void vscode.window.showInformationMessage(summary);
+        }
+        return {
+          taken,
+          failed,
+          skipped: skippedResources.length
+        };
+      }
+    ),
     vscode.commands.registerCommand("kiwi.revealLocalMirror", async (target?: KiwiPlansTreeNode) => {
       const resolvedTarget = resolveMirrorTarget(target);
       const service = createLocalMirrorService(clientFactory);
@@ -1885,6 +2356,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       return vscode.commands.executeCommand("kiwi.showPlanLocalMirrorStatus", target);
     }),
+    vscode.commands.registerCommand("kiwi.__test.comparePlanLocalMirror", async () => {
+      const target: KiwiPlansTreeNode = {
+        kind: "plan",
+        plan: {
+          id: 100,
+          name: "Regression"
+        }
+      };
+      return vscode.commands.executeCommand("kiwi.comparePlanLocalMirror", target);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.uploadPlanLocalMirror", async () => {
+      const target: KiwiPlansTreeNode = {
+        kind: "plan",
+        plan: {
+          id: 100,
+          name: "Regression"
+        }
+      };
+      return vscode.commands.executeCommand("kiwi.uploadPlanLocalMirror", target);
+    }),
     vscode.commands.registerCommand("kiwi.__test.showCaseDiff", async () => {
       const target: KiwiPlansTreeNode = {
         kind: "case",
@@ -1992,6 +2483,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       return vscode.commands.executeCommand("kiwi.compareLocalMirror", target);
     }),
+    vscode.commands.registerCommand("kiwi.__test.getLocalMirrorScmState", async () => {
+      return localMirrorSourceControl.getState();
+    }),
+    vscode.commands.registerCommand("kiwi.__test.openLocalMirrorScmDiff", async (resource?: LocalMirrorScmResource) => {
+      return vscode.commands.executeCommand("kiwi.openLocalMirrorScmDiff", resource);
+    }),
+    vscode.commands.registerCommand("kiwi.__test.scmCompareLocalMirrorAgain", async () => {
+      return vscode.commands.executeCommand("kiwi.scmCompareLocalMirrorAgain");
+    }),
+    vscode.commands.registerCommand(
+      "kiwi.__test.scmUploadLocalMirrorResources",
+      async (resources?: LocalMirrorScmResource[]) => {
+        return vscode.commands.executeCommand("kiwi.scmUploadLocalMirrorResources", resources);
+      }
+    ),
+    vscode.commands.registerCommand(
+      "kiwi.__test.scmTakeRemoteLocalMirrorResources",
+      async (resources?: LocalMirrorScmResource[]) => {
+        return vscode.commands.executeCommand("kiwi.scmTakeRemoteLocalMirrorResources", resources);
+      }
+    ),
     vscode.commands.registerCommand("kiwi.__test.uploadLocalMirror", async () => {
       const target: KiwiPlansTreeNode = {
         kind: "case",
@@ -2801,6 +3313,30 @@ function localMirrorDiffUri(
   );
 }
 
+function toUriLike(uri: vscode.Uri): UriLike {
+  return {
+    scheme: uri.scheme,
+    path: uri.path,
+    fsPath: "fsPath" in uri ? uri.fsPath : undefined
+  };
+}
+
+function renderLocalMirrorDiffTitle(summary: string): string {
+  return `${summary} (Local Mirror ↔ Remote)`;
+}
+
+function dedupeLocalMirrorScmResources(resources: readonly LocalMirrorScmResource[]): LocalMirrorScmResource[] {
+  const deduped = new Map<string, LocalMirrorScmResource>();
+  for (const resource of resources) {
+    deduped.set(`${resource.plan.id}:${resource.caseRef.id}:${resource.status}`, resource);
+  }
+  return [...deduped.values()];
+}
+
+function formatLocalMirrorScmSkippedSummary(action: string, skippedCount: number): string {
+  return `${action}: skipped=${skippedCount}`;
+}
+
 function caseAttachmentsUri(
   plan: { id: number; name: string },
   caseRef: { id: number; summary: string }
@@ -3295,6 +3831,7 @@ function getTabUriString(tab: vscode.Tab): string | undefined {
 
 async function refreshOpenedCaseDocumentAfterLocalMirrorUpload(
   provider: KiwiFileSystemProvider,
+  treeDataProvider: KiwiPlansTreeDataProvider,
   target: Extract<KiwiPlansTreeNode, { kind: "case" }>
 ): Promise<"refreshed" | "dirty" | "not-open"> {
   const uri = vscode.Uri.parse(
@@ -3325,6 +3862,7 @@ async function refreshOpenedCaseDocumentAfterLocalMirrorUpload(
   });
   await provider.refreshCaseDocument(uri);
   await vscode.commands.executeCommand("workbench.action.files.revert");
+  treeDataProvider.clearCaseFreshness(target.caseRef.id);
 
   if (
     previousEditor &&

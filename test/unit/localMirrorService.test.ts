@@ -39,6 +39,7 @@ describe("localMirrorService helpers", () => {
       planId: 100,
       localPath: path.join(".kiwi-mirror", "plans", "100 - Regression", "cases", "501 - Login works.md"),
       downloadedVersionToken: "history_id:10",
+      downloadedContentHash: "abc123",
       lastDownloadedAt: "2026-04-09T00:00:00.000Z"
     };
 
@@ -51,10 +52,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: true,
         hasRemote: true,
-        localBody: "same",
-        remoteBody: "same",
-        downloadedVersionToken: "history_id:10",
-        latestVersionToken: "history_id:10"
+        localChanged: false,
+        remoteChanged: false
       }),
       "unchanged"
     );
@@ -62,10 +61,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: true,
         hasRemote: true,
-        localBody: "local",
-        remoteBody: "remote",
-        downloadedVersionToken: "history_id:10",
-        latestVersionToken: "history_id:10"
+        localChanged: true,
+        remoteChanged: false
       }),
       "modified locally"
     );
@@ -73,10 +70,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: true,
         hasRemote: true,
-        localBody: "same",
-        remoteBody: "same",
-        downloadedVersionToken: "history_id:10",
-        latestVersionToken: "history_id:11"
+        localChanged: false,
+        remoteChanged: true
       }),
       "remote changed"
     );
@@ -84,10 +79,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: true,
         hasRemote: true,
-        localBody: "local",
-        remoteBody: "remote",
-        downloadedVersionToken: "history_id:10",
-        latestVersionToken: "history_id:11"
+        localChanged: true,
+        remoteChanged: true
       }),
       "conflict"
     );
@@ -95,10 +88,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: false,
         hasRemote: true,
-        localBody: "",
-        remoteBody: "remote",
-        downloadedVersionToken: "history_id:10",
-        latestVersionToken: "history_id:10"
+        localChanged: false,
+        remoteChanged: false
       }),
       "missing locally"
     );
@@ -106,9 +97,8 @@ describe("localMirrorService helpers", () => {
       determineLocalMirrorStatus({
         hasLocal: true,
         hasRemote: false,
-        localBody: "local",
-        remoteBody: "",
-        downloadedVersionToken: "history_id:10"
+        localChanged: false,
+        remoteChanged: false
       }),
       "missing remote"
     );

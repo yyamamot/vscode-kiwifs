@@ -83,4 +83,31 @@ describe("KiwiPlansTreeDataProvider freshness decoration", () => {
     expect(freshItem.tooltip).toBeUndefined();
     expect(freshItem.iconPath).toBeUndefined();
   });
+
+  it("prefers compare snapshot decorations over live freshness and clears independently", async () => {
+    const provider = new KiwiPlansTreeDataProvider(
+      async () => {
+        throw new Error("not used");
+      },
+      { log: vi.fn(async () => undefined) } as unknown as JsonlLogger
+    );
+    const node: KiwiPlansTreeNode = {
+      kind: "case",
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+
+    provider.markCaseStale(501, "remote が更新されています。");
+    provider.setCompareSnapshot([{ caseId: 501, status: "Conflict" }]);
+
+    const conflictItem = await provider.getTreeItem(node);
+    expect(conflictItem.description).toBe("Conflicts");
+    expect(conflictItem.tooltip).toContain("local mirror と remote の両方に変更があります。");
+
+    provider.clearCompareSnapshot();
+
+    const staleItem = await provider.getTreeItem(node);
+    expect(staleItem.description).toBe("remote changed");
+    expect(staleItem.tooltip).toContain("remote が更新されています。");
+  });
 });

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import * as path from "node:path";
 import { KiwiAdapter } from "../adapter/types";
@@ -14,11 +15,17 @@ export type LocalMirrorCompareStatus =
   | "missing locally"
   | "missing remote";
 
+export type LocalMirrorScmResourceStatus =
+  | "LocalChanged"
+  | "RemoteChanged"
+  | "Conflict";
+
 export interface LocalMirrorManifestEntry {
   caseId: number;
   planId: number;
   localPath: string;
   downloadedVersionToken: string;
+  downloadedContentHash?: string;
   lastDownloadedAt: string;
   lastUploadedAt?: string;
 }
@@ -44,6 +51,13 @@ export interface LocalMirrorPlanDownloadResult {
   failed: number;
 }
 
+export interface LocalMirrorPlanUploadResult {
+  uploaded: number;
+  skipped: number;
+  failed: number;
+  uploadedTargets: LocalMirrorTarget[];
+}
+
 export interface LocalMirrorPlanStatusRow {
   caseId: number;
   summary: string;
@@ -51,7 +65,18 @@ export interface LocalMirrorPlanStatusRow {
   status: LocalMirrorCompareStatus;
 }
 
-type LocalMirrorTarget = {
+export interface LocalMirrorScmComparableCase {
+  plan: KiwiPlan;
+  caseRef: PlanCaseRef;
+  compare: LocalMirrorCompareResult;
+}
+
+export interface LocalMirrorPlanSnapshot {
+  rows: LocalMirrorPlanStatusRow[];
+  comparableCases: LocalMirrorScmComparableCase[];
+}
+
+export type LocalMirrorTarget = {
   plan: KiwiPlan;
   caseRef: PlanCaseRef;
 };
@@ -101,10 +126,8 @@ export function buildLocalMirrorRelativePath(plan: KiwiPlan, caseRef: PlanCaseRe
 export function determineLocalMirrorStatus(input: {
   hasLocal: boolean;
   hasRemote: boolean;
-  localBody: string;
-  remoteBody: string;
-  downloadedVersionToken: string;
-  latestVersionToken?: string;
+  localChanged: boolean;
+  remoteChanged: boolean;
 }): LocalMirrorCompareStatus {
   if (!input.hasRemote) {
     return "missing remote";
@@ -112,10 +135,31 @@ export function determineLocalMirrorStatus(input: {
   if (!input.hasLocal) {
     return "missing locally";
   }
-  if (input.latestVersionToken === input.downloadedVersionToken) {
-    return input.localBody === input.remoteBody ? "unchanged" : "modified locally";
+  if (!input.localChanged && !input.remoteChanged) {
+    return "unchanged";
   }
-  return input.localBody === input.remoteBody ? "remote changed" : "conflict";
+  if (input.localChanged && !input.remoteChanged) {
+    return "modified locally";
+  }
+  if (!input.localChanged && input.remoteChanged) {
+    return "remote changed";
+  }
+  return "conflict";
+}
+
+export function toLocalMirrorScmResourceStatus(
+  status: LocalMirrorCompareStatus
+): LocalMirrorScmResourceStatus | undefined {
+  switch (status) {
+    case "modified locally":
+      return "LocalChanged";
+    case "remote changed":
+      return "RemoteChanged";
+    case "conflict":
+      return "Conflict";
+    default:
+      return undefined;
+  }
 }
 
 export class LocalMirrorService {
@@ -164,6 +208,7 @@ export class LocalMirrorService {
       planId: target.plan.id,
       localPath: relativePath,
       downloadedVersionToken: latestVersionToken,
+      downloadedContentHash: hashContent(remoteCase.text),
       lastDownloadedAt: new Date().toISOString(),
       lastUploadedAt: existingEntry?.lastUploadedAt
     };
@@ -273,6 +318,7 @@ export class LocalMirrorService {
     manifest.cases[String(target.caseRef.id)] = {
       ...entry,
       downloadedVersionToken: uploadedVersionToken,
+      downloadedContentHash: hashContent(compare.localBody),
       lastUploadedAt: new Date().toISOString()
     };
     await writeLocalMirrorManifest(manifestPath, manifest);
@@ -280,6 +326,36 @@ export class LocalMirrorService {
       localPath: compare.localPath,
       uploadedVersionToken
     };
+  }
+
+  async takeRemoteChanges(target: LocalMirrorTarget): Promise<{ localPath: string }> {
+    const manifest = await readLocalMirrorManifest(this.manifestPath());
+    const entry = manifest.cases[String(target.caseRef.id)];
+    if (!entry) {
+      throw new KiwiError(
+        "ValidationFailed",
+        "Download the case to local mirror first."
+      );
+    }
+
+    const compare = await this.compareWithEntry(target, entry);
+    switch (compare.status) {
+      case "remote changed":
+      case "missing locally":
+        break;
+      case "unchanged":
+        throw new KiwiError("ValidationFailed", "Local mirror already matches remote.");
+      case "modified locally":
+      case "conflict":
+        throw new KiwiError(
+          "ConflictDetected",
+          "Local mirror has local changes. Run 'Compare Local Mirror' before taking remote changes."
+        );
+      case "missing remote":
+        throw new KiwiError("NotFound", "Remote case is missing.");
+    }
+
+    return this.downloadCase(target, { force: true });
   }
 
   async revealLocalMirror(target: LocalMirrorTarget): Promise<string> {
@@ -303,11 +379,12 @@ export class LocalMirrorService {
     return compare.localPath;
   }
 
-  async getPlanMirrorStatus(plan: KiwiPlan): Promise<LocalMirrorPlanStatusRow[]> {
+  async getPlanMirrorSnapshot(plan: KiwiPlan): Promise<LocalMirrorPlanSnapshot> {
     const { adapter, config } = await this.clientFactory();
     const caseRefs = await adapter.listPlanCases(config, plan.id);
     const manifest = await readLocalMirrorManifest(this.manifestPath());
     const rows: LocalMirrorPlanStatusRow[] = [];
+    const comparableCases: LocalMirrorScmComparableCase[] = [];
 
     for (const caseRef of caseRefs) {
       const entry = manifest.cases[String(caseRef.id)];
@@ -328,9 +405,60 @@ export class LocalMirrorService {
         localPath: compare.localPath,
         status: compare.status
       });
+      if (toLocalMirrorScmResourceStatus(compare.status)) {
+        comparableCases.push({
+          plan,
+          caseRef,
+          compare
+        });
+      }
     }
 
-    return rows;
+    return {
+      rows,
+      comparableCases
+    };
+  }
+
+  async getPlanMirrorStatus(plan: KiwiPlan): Promise<LocalMirrorPlanStatusRow[]> {
+    return (await this.getPlanMirrorSnapshot(plan)).rows;
+  }
+
+  async uploadPlanCases(plan: KiwiPlan): Promise<LocalMirrorPlanUploadResult> {
+    const { adapter, config } = await this.clientFactory();
+    const caseRefs = await adapter.listPlanCases(config, plan.id);
+    const manifest = await readLocalMirrorManifest(this.manifestPath());
+    const result: LocalMirrorPlanUploadResult = {
+      uploaded: 0,
+      skipped: 0,
+      failed: 0,
+      uploadedTargets: []
+    };
+
+    for (const caseRef of caseRefs) {
+      const target = { plan, caseRef };
+      const entry = manifest.cases[String(caseRef.id)];
+      if (!entry) {
+        result.skipped += 1;
+        continue;
+      }
+
+      try {
+        const compare = await this.compareWithEntry(target, entry);
+        if (compare.status !== "modified locally") {
+          result.skipped += 1;
+          continue;
+        }
+
+        await this.uploadCase(target);
+        result.uploaded += 1;
+        result.uploadedTargets.push(target);
+      } catch {
+        result.failed += 1;
+      }
+    }
+
+    return result;
   }
 
   manifestFilePath(): string {
@@ -369,13 +497,35 @@ export class LocalMirrorService {
       }
     }
 
+    if (!hasRemote || !hasLocal) {
+      return {
+        status: determineLocalMirrorStatus({
+          hasLocal,
+          hasRemote,
+          localChanged: false,
+          remoteChanged: false
+        }),
+        localPath,
+        localBody: localBody ?? "",
+        remoteBody: remoteBody ?? "",
+        downloadedVersionToken: entry.downloadedVersionToken,
+        latestVersionToken
+      };
+    }
+
+    const baselineContentHash = await this.resolveBaselineContentHash(
+      target,
+      entry,
+      remoteBody ?? "",
+      latestVersionToken
+    );
+    const localChanged = hashContent(localBody ?? "") !== baselineContentHash;
+    const remoteChanged = latestVersionToken !== entry.downloadedVersionToken;
     const status = determineLocalMirrorStatus({
       hasLocal,
       hasRemote,
-      localBody: localBody ?? "",
-      remoteBody: remoteBody ?? "",
-      downloadedVersionToken: entry.downloadedVersionToken,
-      latestVersionToken
+      localChanged,
+      remoteChanged
     });
 
     return {
@@ -406,6 +556,58 @@ export class LocalMirrorService {
       throw error;
     }
   }
+
+  private async resolveBaselineContentHash(
+    target: LocalMirrorTarget,
+    entry: LocalMirrorManifestEntry,
+    remoteBody: string,
+    latestVersionToken?: string
+  ): Promise<string> {
+    if (entry.downloadedContentHash) {
+      return entry.downloadedContentHash;
+    }
+
+    if (latestVersionToken === entry.downloadedVersionToken) {
+      return hashContent(remoteBody);
+    }
+
+    const { adapter, config } = await this.clientFactory();
+    const history = await adapter.getCaseHistory(config, target.caseRef.id);
+    const baselineHistory = history.find(
+      (item) => deriveVersionToken([item]) === entry.downloadedVersionToken
+    );
+
+    if (!baselineHistory?.historyId) {
+      throw new KiwiError(
+        "ValidationFailed",
+        "Local mirror baseline is missing from manifest and could not be reconstructed. Re-download the case to local mirror."
+      );
+    }
+
+    try {
+      const baselineVersion = await adapter.getCaseHistoryVersion(
+        config,
+        target.caseRef.id,
+        baselineHistory.historyId
+      );
+      return hashContent(baselineVersion.text);
+    } catch (error) {
+      if (
+        error instanceof KiwiError &&
+        (error.code === "NotFound" || error.code === "ValidationFailed")
+      ) {
+        throw new KiwiError(
+          "ValidationFailed",
+          "Local mirror baseline is missing from manifest and could not be reconstructed. Re-download the case to local mirror."
+        );
+      }
+      throw error;
+    }
+  }
+}
+
+function hashContent(body: string): string {
+  return createHash("sha256").update(body).digest("hex");
 }
 
 function isDownloadSkipError(error: unknown): boolean {

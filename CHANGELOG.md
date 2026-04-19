@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.4 (2026-04-19)
+
+- テスト計画の右クリックから、配下のローカルミラーを比較・反映できるようにした
+- ローカルミラーの compare snapshot を Source Control に表示し、`Compare Again` / `Upload Local Changes` / `Take Remote Changes` を使えるようにした
+- Explorer でも compare snapshot を優先表示し、`Local Changes` / `Remote Changes` / `Conflicts` が SCM と揃うようにした
+- remote だけ更新されたケースを `Remote Changes` と正しく判定するようにし、旧 manifest でも可能な範囲で比較を継続できるようにした
+- SCM から `Remote Changes` を開いたときに空との差分にならないようにし、その時点の remote 最新本文と local mirror の差分を開くようにした
+- SCM の操作導線を右クリック中心へ寄せ、専用 command は command palette から隠した
+
 ## 0.0.3 (2026-04-16)
 
 - 新規テストケース作成時に、Kiwi TCMS の Template を選んで本文のひな形として使えるようにした

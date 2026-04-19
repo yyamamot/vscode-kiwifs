@@ -713,10 +713,35 @@ describe("extension host", () => {
       commands.find((item) => item.command === "kiwi.removeCaseFromPlanFromPlan")?.title,
       "テスト計画からテストケースを外す"
     );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.comparePlanLocalMirror")?.title,
+      "ローカルミラーを比較"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.uploadPlanLocalMirror")?.title,
+      "ローカルミラーを反映"
+    );
     assert.notEqual(
       planMenus.findIndex((item) => item.command === "kiwi.removeCaseFromPlanFromPlan"),
       -1
     );
+    assert.notEqual(
+      planMenus.findIndex((item) => item.command === "kiwi.comparePlanLocalMirror"),
+      -1
+    );
+    assert.notEqual(
+      planMenus.findIndex((item) => item.command === "kiwi.uploadPlanLocalMirror"),
+      -1
+    );
+    const planMirrorCommands = planMenus
+      .filter((item) => item.group?.startsWith("mirror@"))
+      .map((item) => item.command);
+    assert.deepEqual(planMirrorCommands, [
+      "kiwi.downloadPlanToLocalMirror",
+      "kiwi.comparePlanLocalMirror",
+      "kiwi.uploadPlanLocalMirror",
+      "kiwi.showPlanLocalMirrorStatus"
+    ]);
   });
 
   it("configures base url username and password through dedicated commands", async function () {
@@ -856,6 +881,78 @@ describe("extension host", () => {
       when?: string;
     }>;
     assert.equal(commandPalette.find((item) => item.command === "kiwi.searchCases")?.when, "false");
+  });
+
+  it("contributes local mirror SCM commands and menus", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+
+    const commands = (extension.packageJSON.contributes?.commands ?? []) as Array<{
+      command: string;
+      title: string;
+    }>;
+    const menus = extension.packageJSON.contributes?.menus ?? {};
+    const repositoryMenus = (menus["scm/repository"] ?? []) as Array<{
+      command: string;
+      when?: string;
+      group?: string;
+    }>;
+    const groupMenus = (menus["scm/resourceGroup/context"] ?? []) as Array<{
+      command: string;
+      when?: string;
+      group?: string;
+    }>;
+    const resourceMenus = (menus["scm/resourceState/context"] ?? []) as Array<{
+      command: string;
+      when?: string;
+      group?: string;
+    }>;
+    const commandPalette = (menus.commandPalette ?? []) as Array<{
+      command: string;
+      when?: string;
+    }>;
+
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.title,
+      "Compare Again"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.title,
+      "Upload Local Changes"
+    );
+    assert.equal(
+      commands.find((item) => item.command === "kiwi.scmTakeRemoteLocalMirrorResources")?.title,
+      "Take Remote Changes"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.when,
+      "scmProvider == kiwi-local-mirror-compare"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.group,
+      "inline@1"
+    );
+    assert.equal(
+      groupMenus.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.when,
+      "scmProvider == kiwi-local-mirror-compare && scmResourceGroup == changes"
+    );
+    assert.equal(
+      groupMenus.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.group,
+      "navigation@1"
+    );
+    assert.equal(
+      resourceMenus.find((item) => item.command === "kiwi.scmTakeRemoteLocalMirrorResources")?.when,
+      "scmProvider == kiwi-local-mirror-compare && scmResourceState == kiwi.remoteChanged"
+    );
+    assert.equal(
+      resourceMenus.find((item) => item.command === "kiwi.scmTakeRemoteLocalMirrorResources")?.group,
+      "navigation@1"
+    );
+    assert.equal(
+      commandPalette.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.when,
+      "false"
+    );
   });
 
   it("contributes manual case freshness check to case context and editor title", async function () {
@@ -1977,6 +2074,9 @@ describe("extension host", () => {
     assert.match(reportDocument.getText(), /\| 501 \| Login works \| unchanged \|/);
     assert.match(reportDocument.getText(), /\| 502 \| Password reset works \| unchanged \|/);
 
+    const scmState = await vscode.commands.executeCommand("kiwi.__test.getLocalMirrorScmState");
+    assert.equal(scmState, undefined);
+
     await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
   });
 
@@ -1998,12 +2098,21 @@ describe("extension host", () => {
       localUri: string;
       remoteUri: string;
       status: string;
+      localPath: string;
     }>("kiwi.__test.compareLocalMirror");
     assert.equal(conflictCompare?.status, "conflict");
-    const conflictLocal = await vscode.workspace.openTextDocument(vscode.Uri.parse(conflictCompare!.localUri));
     const conflictRemote = await vscode.workspace.openTextDocument(vscode.Uri.parse(conflictCompare!.remoteUri));
-    assert.match(conflictLocal.getText(), /Changed locally\./);
+    assert.match(await readFile(conflictCompare!.localPath, "utf8"), /Changed locally\./);
     assert.match(conflictRemote.getText(), /Changed remotely\./);
+    await waitForTreeCaseDescription("501 - Login works.md", "Conflicts");
+
+    const scmState = await vscode.commands.executeCommand<{
+      target: { kind: string; caseRef?: { id: number } };
+      resources: Array<{ caseRef: { id: number }; status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.equal(scmState?.target.kind, "case");
+    assert.equal(scmState?.resources[0]?.caseRef.id, 501);
+    assert.equal(scmState?.resources[0]?.status, "Conflict");
 
     const forced = await vscode.commands.executeCommand<{ localPath: string }>(
       "kiwi.__test.downloadLocalMirror",
@@ -2033,6 +2142,267 @@ describe("extension host", () => {
 
     const revealPath = await vscode.commands.executeCommand<string>("kiwi.__test.revealLocalMirror");
     assert.equal(revealPath, redownloaded!.localPath);
+  });
+
+  it("compares plan-local mirrors and rebuilds SCM snapshot on compare again", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    await vscode.commands.executeCommand("kiwi.__test.downloadPlanToLocalMirror", false, true);
+    const loginMirror = path.join(
+      workspaceRoot!,
+      ".kiwi-mirror",
+      "plans",
+      "100 - Regression",
+      "cases",
+      "501 - Login works.md"
+    );
+    await writeFile(loginMirror, "Local plan snapshot change", "utf8");
+    await harness.simulateRemoteChange(502, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote plan snapshot change`
+    }));
+
+    const compareResult = await vscode.commands.executeCommand<{
+      title: string;
+      openedDiffs: Array<{
+        caseId: number;
+        status: string;
+        localUri: string;
+        remoteUri: string;
+      }>;
+    }>("kiwi.__test.comparePlanLocalMirror");
+    assert.equal(compareResult?.title, "Local Mirror Compare: Regression");
+    assert.deepEqual(
+      (compareResult?.openedDiffs ?? []).map((entry) => ({
+        caseId: entry.caseId,
+        status: entry.status
+      })),
+      [
+        { caseId: 501, status: "modified locally" },
+        { caseId: 502, status: "remote changed" }
+      ]
+    );
+    const compareRemote = await vscode.workspace.openTextDocument(
+      vscode.Uri.parse(compareResult!.openedDiffs[0]!.remoteUri)
+    );
+    assert.match(await readFile(loginMirror, "utf8"), /Local plan snapshot change/);
+    assert.match(compareRemote.getText(), /Login succeeds\./);
+    const treeSnapshot = await vscode.commands.executeCommand<KiwiPlansTreeSnapshotNode[]>(
+      "kiwi.__test.getPlanTreeSnapshot"
+    );
+    const compareTreeCases = treeSnapshot?.[0]?.children ?? [];
+    assert.equal(
+      compareTreeCases.find((node) => node.label === "501 - Login works.md")?.description,
+      "Local Changes"
+    );
+    assert.equal(
+      compareTreeCases.find((node) => node.label === "502 - Password reset works.md")?.description,
+      "Remote Changes"
+    );
+    const planState = await vscode.commands.executeCommand<{
+      target: { kind: string; plan: { id: number } };
+      resources: Array<{ caseRef: { id: number }; status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.equal(planState?.target.kind, "plan");
+    assert.deepEqual(
+      (planState?.resources ?? []).map((resource) => ({
+        caseId: resource.caseRef.id,
+        status: resource.status
+      })),
+      [
+        { caseId: 501, status: "LocalChanged" },
+        { caseId: 502, status: "RemoteChanged" }
+      ]
+    );
+
+    await writeFile(loginMirror, "Local plan snapshot change again", "utf8");
+    const compareAgain = await vscode.commands.executeCommand<{
+      openedDiffs?: Array<{ caseId: number; status: string }>;
+      title?: string;
+    }>("kiwi.__test.scmCompareLocalMirrorAgain");
+    assert.equal(compareAgain?.title, "Local Mirror Compare: Regression");
+    assert.deepEqual(
+      compareAgain?.openedDiffs?.map((entry) => ({
+        caseId: entry.caseId,
+        status: entry.status
+      })),
+      [
+        {
+          caseId: 501,
+          status: "modified locally"
+        },
+        {
+          caseId: 502,
+          status: "remote changed"
+        }
+      ]
+    );
+
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+  });
+
+  it("uploads plan-local mirrors in changed-only mode and refreshes only uploaded editors", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    await vscode.commands.executeCommand("kiwi.__test.downloadPlanToLocalMirror", false, true);
+    const loginMirror = path.join(
+      workspaceRoot!,
+      ".kiwi-mirror",
+      "plans",
+      "100 - Regression",
+      "cases",
+      "501 - Login works.md"
+    );
+    await writeFile(
+      loginMirror,
+      `${await readFile(loginMirror, "utf8")}\n\nUploaded from plan mirror.\n`,
+      "utf8"
+    );
+    await harness.simulateRemoteChange(502, (current) => ({
+      ...current
+    }));
+
+    const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
+    const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
+    await vscode.window.showTextDocument(kiwiDocument);
+
+    await vscode.commands.executeCommand("kiwi.__test.comparePlanLocalMirror");
+    const result = await vscode.commands.executeCommand<{
+      uploaded: number;
+      refreshed: number;
+      dirty: number;
+      skipped: number;
+      failed: number;
+    }>("kiwi.__test.uploadPlanLocalMirror");
+    assert.deepEqual(result, {
+      uploaded: 1,
+      refreshed: 1,
+      dirty: 0,
+      skipped: 1,
+      failed: 0
+    });
+    assert.match((await harness.readState()).cases["501"]?.text ?? "", /Uploaded from plan mirror\./);
+    assert.match(kiwiDocument.getText(), /Uploaded from plan mirror\./);
+
+    const scmState = await vscode.commands.executeCommand<{
+      resources: Array<{ caseRef: { id: number }; status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.deepEqual(
+      (scmState?.resources ?? []).map((resource) => ({
+        caseId: resource.caseRef.id,
+        status: resource.status
+      })),
+      [{ caseId: 502, status: "RemoteChanged" }]
+    );
+  });
+
+  it("takes remote changes from SCM without refreshing opened kiwi documents", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    const downloaded = await vscode.commands.executeCommand<{ localPath: string }>(
+      "kiwi.__test.downloadLocalMirror"
+    );
+    assert.ok(downloaded?.localPath);
+    const mirrorTextBeforeTake = await readFile(downloaded!.localPath, "utf8");
+
+    const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
+    const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
+    await vscode.window.showTextDocument(kiwiDocument);
+    const initialText = kiwiDocument.getText();
+
+    await harness.simulateRemoteChange(501, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote SCM change`
+    }));
+    await vscode.commands.executeCommand("kiwi.__test.compareLocalMirror");
+
+    const beforeTake = await vscode.commands.executeCommand<{
+      resources: Array<{ status: string; plan: { id: number; name: string }; caseRef: { id: number; summary: string } }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.equal(beforeTake?.resources[0]?.status, "RemoteChanged");
+    await waitForTreeCaseDescription("501 - Login works.md", "Remote Changes");
+    const scmDiff = await vscode.commands.executeCommand<{
+      remoteUri: string;
+      localPath: string;
+      status: string;
+    }>("kiwi.__test.openLocalMirrorScmDiff", beforeTake?.resources[0]);
+    assert.equal(scmDiff?.status, "remote changed");
+    assert.equal(scmDiff?.localPath, downloaded!.localPath);
+    const scmRemoteDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(scmDiff!.remoteUri));
+    assert.match(scmRemoteDocument.getText(), /Remote SCM change/);
+
+    const result = await vscode.commands.executeCommand<{
+      taken: number;
+      failed: number;
+      skipped: number;
+    }>("kiwi.__test.scmTakeRemoteLocalMirrorResources");
+    assert.deepEqual(result, {
+      taken: 1,
+      failed: 0,
+      skipped: 0
+    });
+    assert.notEqual(await readFile(downloaded!.localPath, "utf8"), mirrorTextBeforeTake);
+    assert.match(await readFile(downloaded!.localPath, "utf8"), /Remote SCM change/);
+    assert.equal(kiwiDocument.getText(), initialText);
+
+    const afterTake = await vscode.commands.executeCommand<{
+      resources: Array<{ status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.deepEqual(afterTake?.resources ?? [], []);
+  });
+
+  it("uploads local changes from SCM and refreshes opened kiwi documents", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    const downloaded = await vscode.commands.executeCommand<{ localPath: string }>(
+      "kiwi.__test.downloadLocalMirror"
+    );
+    assert.ok(downloaded?.localPath);
+    await writeFile(
+      downloaded!.localPath,
+      `${await readFile(downloaded!.localPath, "utf8")}\n\nUploaded from SCM action.\n`,
+      "utf8"
+    );
+
+    const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
+    const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
+    await vscode.window.showTextDocument(kiwiDocument);
+
+    await vscode.commands.executeCommand("kiwi.__test.compareLocalMirror");
+    const result = await vscode.commands.executeCommand<{
+      uploaded: number;
+      refreshed: number;
+      dirty: number;
+      failed: number;
+      skipped: number;
+    }>("kiwi.__test.scmUploadLocalMirrorResources");
+    assert.deepEqual(result, {
+      uploaded: 1,
+      refreshed: 1,
+      dirty: 0,
+      failed: 0,
+      skipped: 0
+    });
+    assert.match((await harness.readState()).cases["501"]?.text ?? "", /Uploaded from SCM action\./);
+    assert.match(kiwiDocument.getText(), /Uploaded from SCM action\./);
+
+    const scmState = await vscode.commands.executeCommand<{
+      resources: Array<{ status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    assert.deepEqual(scmState?.resources ?? [], []);
+    await waitForTreeCaseDescription("501 - Login works.md", undefined);
   });
 
   it("does not auto-refresh opened case documents after local mirror upload when the editor is dirty", async function () {
@@ -2102,6 +2472,7 @@ describe("extension host", () => {
 
   it("auto-checks freshness when the active kiwi editor changes", async function () {
     this.timeout(20000);
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
     await vscode.window.showTextDocument(kiwiDocument);
@@ -2132,6 +2503,7 @@ describe("extension host", () => {
 
   it("refreshes active case documents only on explicit command", async function () {
     this.timeout(20000);
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     const uri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const document = await vscode.workspace.openTextDocument(uri);
     await vscode.window.showTextDocument(document);
@@ -2150,6 +2522,7 @@ describe("extension host", () => {
 
   it("uses the active dirty editor as the local diff baseline", async function () {
     this.timeout(20000);
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
     const uri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const document = await vscode.workspace.openTextDocument(uri);
     const editor = await vscode.window.showTextDocument(document);

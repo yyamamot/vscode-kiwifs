@@ -1,10 +1,16 @@
 import * as assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, it } from "vitest";
 import { MockFileAdapter } from "../../src/adapter/mockFileAdapter";
-import { LocalMirrorService } from "../../src/extension/localMirrorService";
+import {
+  buildLocalMirrorRelativePath,
+  createEmptyLocalMirrorManifest,
+  LocalMirrorService,
+  readLocalMirrorManifest,
+  writeLocalMirrorManifest
+} from "../../src/extension/localMirrorService";
 import { createKiwiHarness } from "../harness/createKiwiHarness";
 import { KiwiConfig } from "../../src/types";
 import { KiwiError } from "../../src/domain/errors";
@@ -109,6 +115,56 @@ describe("LocalMirrorService", () => {
       },
       (error) => error instanceof KiwiError && error.code === "ConflictDetected"
     );
+  });
+
+  it("treats remote-only text changes as remote changed", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Original"
+    });
+    await harness.seedCaseHistory(501, [
+      {
+        historyId: 10,
+        historyDate: "2026-04-05T00:00:00.000Z",
+        text: "Original"
+      }
+    ]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+    const target = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+
+    const downloaded = await service.downloadCase(target);
+    await harness.simulateRemoteChange(501, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote changed`
+    }));
+
+    const compare = await service.compareCase(target);
+    assert.equal(await readFile(downloaded.localPath, "utf8"), "Original");
+    assert.equal(compare.status, "remote changed");
+    assert.match(compare.remoteBody, /Remote changed/);
   });
 
   it("downloads plan cases in bulk and skips locally modified mirrors", async () => {
@@ -345,5 +401,436 @@ describe("LocalMirrorService", () => {
     );
     assert.match(rows[0]?.localPath ?? "", /501 - Login works\.md$/);
     assert.match(rows[1]?.localPath ?? "", /502 - Password reset works\.md$/);
+  });
+
+  it("builds a plan SCM snapshot from comparable mirror states", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Original login"
+    });
+    await harness.seedCaseDocument({
+      id: 502,
+      planId: 100,
+      summary: "Password reset works",
+      priority: "P2",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Original reset"
+    });
+    await harness.seedCaseDocument({
+      id: 503,
+      planId: 100,
+      summary: "Profile works",
+      priority: "P3",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Profile body"
+    });
+    await harness.seedPlanCases(100, [501, 502, 503]);
+    await harness.seedCaseHistory(501, [{ historyId: 10, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(502, [{ historyId: 20, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(503, [{ historyId: 30, historyDate: "2026-04-05T00:00:00.000Z" }]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+
+    const case501 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+    const case502 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 502, summary: "Password reset works" }
+    };
+    const case503 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 503, summary: "Profile works" }
+    };
+
+    const mirror501 = await service.downloadCase(case501);
+    await service.downloadCase(case502);
+    await service.downloadCase(case503);
+    await writeFile(mirror501.localPath, "Locally modified", "utf8");
+    await harness.simulateRemoteChange(502, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote reset changed`
+    }));
+    const mirror503 = await service.downloadCase(case503, { force: true });
+    await writeFile(mirror503.localPath, "Local conflict", "utf8");
+    await harness.simulateRemoteChange(503, (current) => ({
+      ...current,
+      text: "Remote conflict"
+    }));
+
+    const snapshot = await service.getPlanMirrorSnapshot({ id: 100, name: "Regression" });
+    assert.deepEqual(
+      snapshot.comparableCases.map((entry) => ({
+        caseId: entry.caseRef.id,
+        status: entry.compare.status
+      })),
+      [
+        { caseId: 501, status: "modified locally" },
+        { caseId: 502, status: "remote changed" },
+        { caseId: 503, status: "conflict" }
+      ]
+    );
+  });
+
+  it("takes remote changes without refreshing opened kiwi documents", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Original"
+    });
+    await harness.seedCaseHistory(501, [{ historyId: 10, historyDate: "2026-04-05T00:00:00.000Z" }]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+    const target = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+
+    const downloaded = await service.downloadCase(target);
+    const manifestBefore = await readLocalMirrorManifest(service.manifestFilePath());
+    await harness.simulateRemoteChange(501, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote updated`
+    }));
+
+    const compare = await service.compareCase(target);
+    assert.equal(compare.status, "remote changed");
+
+    const taken = await service.takeRemoteChanges(target);
+    const manifestAfter = await readLocalMirrorManifest(service.manifestFilePath());
+    assert.equal(taken.localPath, downloaded.localPath);
+    assert.equal(await readFile(downloaded.localPath, "utf8"), "Original\nRemote updated");
+    assert.notEqual(
+      manifestAfter.cases["501"]?.downloadedVersionToken,
+      manifestBefore.cases["501"]?.downloadedVersionToken
+    );
+    assert.notEqual(
+      manifestAfter.cases["501"]?.downloadedContentHash,
+      manifestBefore.cases["501"]?.downloadedContentHash
+    );
+    assert.equal((await service.compareCase(target)).status, "unchanged");
+  });
+
+  it("uploads plan-local mirrors in changed-only mode", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Login body"
+    });
+    await harness.seedCaseDocument({
+      id: 502,
+      planId: 100,
+      summary: "Password reset works",
+      priority: "P2",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Reset body"
+    });
+    await harness.seedCaseDocument({
+      id: 503,
+      planId: 100,
+      summary: "Missing remote works",
+      priority: "P3",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Missing remote body"
+    });
+    await harness.seedCaseDocument({
+      id: 504,
+      planId: 100,
+      summary: "Unchanged works",
+      priority: "P4",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Unchanged body"
+    });
+    await harness.seedCaseDocument({
+      id: 505,
+      planId: 100,
+      summary: "Skipped without mirror",
+      priority: "P5",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "No mirror yet"
+    });
+    await harness.seedPlanCases(100, [501, 502, 503, 504, 505]);
+    await harness.seedCaseHistory(501, [{ historyId: 10, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(502, [{ historyId: 20, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(503, [{ historyId: 30, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(504, [{ historyId: 40, historyDate: "2026-04-05T00:00:00.000Z" }]);
+    await harness.seedCaseHistory(505, [{ historyId: 50, historyDate: "2026-04-05T00:00:00.000Z" }]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+
+    const target501 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+    const target502 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 502, summary: "Password reset works" }
+    };
+    const target503 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 503, summary: "Missing remote works" }
+    };
+    const target504 = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 504, summary: "Unchanged works" }
+    };
+
+    const mirror501 = await service.downloadCase(target501);
+    await service.downloadCase(target502);
+    await service.downloadCase(target503);
+    await service.downloadCase(target504);
+    await writeFile(mirror501.localPath, "Locally modified upload", "utf8");
+    await harness.simulateRemoteChange(502, (current) => ({
+      ...current,
+      text: `${current.text}\nRemote changed`
+    }));
+    assert.match(
+      buildLocalMirrorRelativePath(target503.plan, target503.caseRef),
+      /503 - Missing remote works\.md$/
+    );
+    await harness.setFailureMode("notFoundCaseIds", [503]);
+
+    const manifestBefore = await readLocalMirrorManifest(service.manifestFilePath());
+    const token501Before = manifestBefore.cases["501"]?.downloadedVersionToken;
+    const hash501Before = manifestBefore.cases["501"]?.downloadedContentHash;
+    const token504Before = manifestBefore.cases["504"]?.downloadedVersionToken;
+    const hash504Before = manifestBefore.cases["504"]?.downloadedContentHash;
+
+    const result = await service.uploadPlanCases({ id: 100, name: "Regression" });
+    assert.deepEqual(
+      {
+        uploaded: result.uploaded,
+        skipped: result.skipped,
+        failed: result.failed,
+        uploadedCaseIds: result.uploadedTargets.map((target) => target.caseRef.id)
+      },
+      {
+        uploaded: 1,
+        skipped: 4,
+        failed: 0,
+        uploadedCaseIds: [501]
+      }
+    );
+
+    const manifestAfter = await readLocalMirrorManifest(service.manifestFilePath());
+    assert.notEqual(manifestAfter.cases["501"]?.downloadedVersionToken, token501Before);
+    assert.notEqual(manifestAfter.cases["501"]?.downloadedContentHash, hash501Before);
+    assert.equal(manifestAfter.cases["504"]?.downloadedVersionToken, token504Before);
+    assert.equal(manifestAfter.cases["504"]?.downloadedContentHash, hash504Before);
+    assert.match((await harness.readState()).cases["501"]?.text ?? "", /Locally modified upload/);
+    assert.equal((await harness.readState()).cases["504"]?.text, "Unchanged body");
+  });
+
+  it("reconstructs baseline from history for old manifests without content hash", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Current remote"
+    });
+    await harness.seedCaseHistory(501, [
+      {
+        historyId: 11,
+        historyDate: "2026-04-06T00:00:00.000Z",
+        historyChangeReason: "remote-change",
+        text: "Current remote"
+      },
+      {
+        historyId: 10,
+        historyDate: "2026-04-05T00:00:00.000Z",
+        historyChangeReason: "create",
+        text: "Baseline remote"
+      }
+    ]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+    const target = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+    const relativePath = buildLocalMirrorRelativePath(target.plan, target.caseRef);
+    const localPath = path.join(workspaceRoot, relativePath);
+    await mkdir(path.dirname(localPath), { recursive: true });
+    await writeFile(localPath, "Baseline remote", "utf8");
+
+    const manifest = createEmptyLocalMirrorManifest();
+    manifest.cases["501"] = {
+      caseId: 501,
+      planId: 100,
+      localPath: relativePath,
+      downloadedVersionToken: "history_id:10",
+      lastDownloadedAt: "2026-04-05T00:00:00.000Z"
+    };
+    await writeLocalMirrorManifest(service.manifestFilePath(), manifest);
+
+    const compare = await service.compareCase(target);
+    assert.equal(compare.status, "remote changed");
+
+    await writeFile(localPath, "Locally changed too", "utf8");
+    const conflicted = await service.compareCase(target);
+    assert.equal(conflicted.status, "conflict");
+  });
+
+  it("fails compare when old manifest baseline cannot be reconstructed", async () => {
+    const harness = await createKiwiHarness();
+    await harness.seedPlans([{ id: 100, name: "Regression" }]);
+    await harness.seedCaseDocument({
+      id: 501,
+      planId: 100,
+      summary: "Login works",
+      priority: "P1",
+      category: "Functional",
+      status: "CONFIRMED",
+      components: [],
+      tags: [],
+      notes: "",
+      text: "Current remote"
+    });
+    await harness.seedCaseHistory(501, [
+      {
+        historyDate: "2026-04-06T00:00:00.000Z",
+        historyChangeReason: "remote-change"
+      },
+      {
+        historyDate: "2026-04-05T00:00:00.000Z",
+        historyChangeReason: "create"
+      }
+    ]);
+
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-mirror-int-"));
+    tempDirs.push(workspaceRoot);
+    const service = new LocalMirrorService(async () => ({
+      adapter: new MockFileAdapter(harness.statePath),
+      config: {
+        baseUrl: harness.baseUrl,
+        username: "admin",
+        password: "admin"
+      }
+    }), workspaceRoot);
+    const target = {
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    };
+    const relativePath = buildLocalMirrorRelativePath(target.plan, target.caseRef);
+    const localPath = path.join(workspaceRoot, relativePath);
+    await mkdir(path.dirname(localPath), { recursive: true });
+    await writeFile(localPath, "Baseline remote", "utf8");
+
+    const manifest = createEmptyLocalMirrorManifest();
+    manifest.cases["501"] = {
+      caseId: 501,
+      planId: 100,
+      localPath: relativePath,
+      downloadedVersionToken: "history_date:2026-04-05T00:00:00.000Z|reason:create",
+      lastDownloadedAt: "2026-04-05T00:00:00.000Z"
+    };
+    await writeLocalMirrorManifest(service.manifestFilePath(), manifest);
+
+    await assert.rejects(
+      async () => {
+        await service.compareCase(target);
+      },
+      (error) =>
+        error instanceof KiwiError &&
+        error.code === "ValidationFailed" &&
+        /Re-download the case to local mirror/.test(error.message)
+    );
   });
 });

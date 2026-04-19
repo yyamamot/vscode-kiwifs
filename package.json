@@ -6,7 +6,7 @@
   "categories": [
     "Other"
   ],
-  "version": "0.0.3",
+  "version": "0.0.4",
   "license": "MIT",
   "icon": "assets/icon.png",
   "repository": {
@@ -42,6 +42,8 @@
     "onCommand:kiwi.removeCaseFromPlanFromPlan",
     "onCommand:kiwi.deleteCase",
     "onCommand:kiwi.downloadPlanToLocalMirror",
+    "onCommand:kiwi.comparePlanLocalMirror",
+    "onCommand:kiwi.uploadPlanLocalMirror",
     "onCommand:kiwi.showPlanLocalMirrorStatus",
     "onCommand:kiwi.refreshCaseDocument",
     "onCommand:kiwi.checkCaseFreshness",
@@ -62,6 +64,9 @@
     "onCommand:kiwi.downloadCaseToLocalMirror",
     "onCommand:kiwi.compareLocalMirror",
     "onCommand:kiwi.uploadLocalMirror",
+    "onCommand:kiwi.scmCompareLocalMirrorAgain",
+    "onCommand:kiwi.scmUploadLocalMirrorResources",
+    "onCommand:kiwi.scmTakeRemoteLocalMirrorResources",
     "onCommand:kiwi.revealLocalMirror",
     "onCommand:kiwi.clearRuntimeLogs",
     "onCommand:kiwi.revealRuntimeLogs"
@@ -159,6 +164,16 @@
         "icon": "$(cloud-download)"
       },
       {
+        "command": "kiwi.comparePlanLocalMirror",
+        "title": "ローカルミラーを比較",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "kiwi.uploadPlanLocalMirror",
+        "title": "ローカルミラーを反映",
+        "icon": "$(cloud-upload)"
+      },
+      {
         "command": "kiwi.showPlanLocalMirrorStatus",
         "title": "ローカルミラー状態を表示"
       },
@@ -249,6 +264,21 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "kiwi.scmCompareLocalMirrorAgain",
+        "title": "Compare Again",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "kiwi.scmUploadLocalMirrorResources",
+        "title": "Upload Local Changes",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+        "title": "Take Remote Changes",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "kiwi.revealLocalMirror",
         "title": "ローカルミラーを開く",
         "icon": "$(go-to-file)"
@@ -337,6 +367,18 @@
         {
           "command": "kiwi.removeCaseFromPlanFromPlan",
           "when": "false"
+        },
+        {
+          "command": "kiwi.scmUploadLocalMirrorResources",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.scmCompareLocalMirrorAgain",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "false"
         }
       ],
       "view/item/context": [
@@ -381,9 +423,19 @@
           "group": "mirror@1"
         },
         {
-          "command": "kiwi.showPlanLocalMirrorStatus",
+          "command": "kiwi.comparePlanLocalMirror",
           "when": "view == kiwiPlans && viewItem == plan",
           "group": "mirror@2"
+        },
+        {
+          "command": "kiwi.uploadPlanLocalMirror",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "mirror@3"
+        },
+        {
+          "command": "kiwi.showPlanLocalMirrorStatus",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "mirror@4"
         },
         {
           "command": "kiwi.removeCaseFromPlan",
@@ -491,6 +543,47 @@
           "command": "kiwi.openInBrowser",
           "when": "resourceScheme == kiwi && resourcePath =~ /\\/cases\\/.+\\.md$/",
           "group": "navigation@3"
+        }
+      ],
+      "scm/repository": [
+        {
+          "command": "kiwi.scmCompareLocalMirrorAgain",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@1"
+        },
+        {
+          "command": "kiwi.scmUploadLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@2"
+        },
+        {
+          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@3"
+        }
+      ],
+      "scm/resourceGroup/context": [
+        {
+          "command": "kiwi.scmUploadLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare && scmResourceGroup == changes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare && scmResourceGroup == remoteChanged",
+          "group": "navigation@1"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "kiwi.scmUploadLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare && scmResourceState == kiwi.localChanged",
+          "group": "navigation@1"
+        },
+        {
+          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare && scmResourceState == kiwi.remoteChanged",
+          "group": "navigation@1"
         }
       ]
     },
