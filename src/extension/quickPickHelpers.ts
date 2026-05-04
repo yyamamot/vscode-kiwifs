@@ -20,6 +20,7 @@ import {
   buildCaseHistoryDiffQuickPickItems,
   type CaseHistoryDiffPair
 } from "./buildCaseHistoryQuickPickItems";
+import { localize } from "./l10n";
 
 export function buildVisibleCaseSearchItems(
   matches: Parameters<typeof buildCaseSearchQuickPickItems>[0],
@@ -28,7 +29,9 @@ export function buildVisibleCaseSearchItems(
   const page = paginateCaseSearchItems(matches, visibleCount);
   return buildCaseSearchQuickPickItems(page.visibleItems, {
     totalCount: page.totalCount,
-    hasMore: page.hasMore
+    hasMore: page.hasMore,
+    moreLabel: localize("Show More"),
+    moreDetail: localize("Show more search results.")
   });
 }
 
@@ -65,7 +68,7 @@ export async function pickCaseSearchItem(
   items: CaseSearchQuickPickItem[]
 ): Promise<CaseSearchQuickPickItem | undefined> {
   return vscode.window.showQuickPick(items, {
-    placeHolder: "開くテストケースを選択してください",
+    placeHolder: localize("Select a test case to open."),
     matchOnDescription: true,
     matchOnDetail: true
   });
@@ -75,7 +78,7 @@ export async function pickExistingCaseToPlanItem(
   items: ExistingCaseToPlanQuickPickItem[]
 ): Promise<ExistingCaseToPlanQuickPickItem | undefined> {
   return vscode.window.showQuickPick(items, {
-    placeHolder: "この計画に追加する既存テストケースを選択してください",
+    placeHolder: localize("Select an existing test case to add to this plan."),
     matchOnDescription: true,
     matchOnDetail: true
   });
@@ -85,7 +88,7 @@ export async function pickRemoveCaseFromPlanItem(
   items: RemoveCaseFromPlanQuickPickItem[]
 ): Promise<RemoveCaseFromPlanQuickPickItem | undefined> {
   return vscode.window.showQuickPick(items, {
-    placeHolder: "この計画から外すテストケースを選択してください",
+    placeHolder: localize("Select a test case to remove from this plan."),
     matchOnDescription: true,
     matchOnDetail: true
   });
@@ -95,7 +98,7 @@ export async function pickExecutionItem(
   items: ExecutionQuickPickItem[]
 ): Promise<ExecutionQuickPickItem | undefined> {
   return vscode.window.showQuickPick(items, {
-    placeHolder: "テストケースの実行結果を更新する Test Run を選択してください",
+    placeHolder: localize("Select a Test Run to update the test case execution result."),
     matchOnDescription: true,
     matchOnDetail: true
   });
@@ -110,7 +113,7 @@ export async function pickCaseHistoryDiffPair(
     return undefined;
   }
   const picked = await vscode.window.showQuickPick(items, {
-    placeHolder: "差分表示する履歴ペアを選択してください",
+    placeHolder: localize("Select a history pair to diff."),
     matchOnDescription: true,
     matchOnDetail: true
   });

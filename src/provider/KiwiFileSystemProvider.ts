@@ -508,19 +508,19 @@ function humanMessage(error: unknown): string {
   if (error instanceof KiwiError) {
     switch (error.code) {
       case "AuthenticationFailed":
-        return "認証情報または設定が不足しています。";
+        return vscode.l10n.t("Authentication information or settings are missing.");
       case "AuthorizationFailed":
-        return "権限不足のため操作できません。";
+        return vscode.l10n.t("You do not have permission to perform this operation.");
       case "ConnectionFailed":
-        return "接続に失敗しました。";
+        return vscode.l10n.t("Connection failed.");
       case "NotFound":
-        return "対象が見つかりません。";
+        return vscode.l10n.t("The target was not found.");
       case "ValidationFailed":
-        return "Case Document を開き直してから再保存してください。";
+        return vscode.l10n.t("Reopen the Case Document before saving again.");
       case "ConflictDetected":
-        return "remote が更新されています。差分確認または明示更新してください。";
+        return vscode.l10n.t("Remote content has changed. Check the diff or refresh explicitly.");
       case "ApiUnsupported":
-        return "この操作はまだサポートされていません。";
+        return vscode.l10n.t("This operation is not supported yet.");
     }
   }
 

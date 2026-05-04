@@ -10,14 +10,15 @@ export type RemoveCaseFromPlanQuickPickItem = {
 
 export function buildRemoveCaseFromPlanQuickPickItems(
   plan: KiwiPlan,
-  cases: PlanCaseRef[]
+  cases: PlanCaseRef[],
+  labels: { detail?: string } = {}
 ): RemoveCaseFromPlanQuickPickItem[] {
   return [...cases]
     .sort((left, right) => left.id - right.id)
     .map((caseRef) => ({
       label: `${caseRef.id} - ${caseRef.summary}`,
       description: `${plan.id} - ${plan.name}`,
-      detail: "この計画から外すテストケース",
+      detail: labels.detail ?? "Test case to remove from this plan",
       plan,
       caseRef
     }));

@@ -13,6 +13,7 @@ import {
   serializeExecutionItem
 } from "./quickPickHelpers";
 import { humanMessage } from "./extensionRuntimeSupport";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: ReturnType<typeof createAdapter>;
@@ -68,13 +69,13 @@ export function registerExecutionCommands(args: {
           const executions = await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
-              title: "テスト実行を取得中..."
+              title: localize("Loading test executions...")
             },
             async () => adapter.listCaseExecutions(config, resolved.caseRef.id)
           );
           if (executions.length === 0) {
             void vscode.window.showInformationMessage(
-              "テストケースを含むテスト実行はありません。"
+              localize("No test executions include this test case.")
             );
             return [];
           }

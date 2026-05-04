@@ -26,6 +26,7 @@ const unitTests = [
 ];
 
 runRequired("pnpm", ["exec", "vitest", "run", ...unitTests], "UI-related unit tests");
+runRequired("pnpm", ["run", "check:release-ui-text"], "release UI text audit");
 runRequired("pnpm", ["run", "test:integration:host"], "VS Code host integration");
 const review = runRequired(
   "pnpm",

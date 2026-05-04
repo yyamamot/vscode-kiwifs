@@ -6,7 +6,7 @@
   "categories": [
     "Other"
   ],
-  "version": "0.0.5",
+  "version": "0.0.6",
   "license": "MIT",
   "icon": "assets/icon.png",
   "repository": {
@@ -342,12 +342,12 @@
     "viewsWelcome": [
       {
         "view": "kiwiPlans",
-        "contents": "Kiwi への接続を設定します。\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)",
+        "contents": "%view.kiwiPlans.welcome.setup%",
         "when": "config.kiwi.baseUrl == ''"
       },
       {
         "view": "kiwiPlans",
-        "contents": "Kiwi Plans を開きます。\n[ルートを開く](command:kiwi.openRoot)\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)",
+        "contents": "%view.kiwiPlans.welcome.open%",
         "when": "config.kiwi.baseUrl != ''"
       }
     ],
@@ -617,7 +617,8 @@
     "test:integration:host": "pnpm run build && pnpm run build:test && node ./out/test/integration-host/run.js",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test:unit",
     "verify": "pnpm run build && pnpm run check:l10n && pnpm run test:unit && pnpm run test:integration && pnpm run test:integration:host",
-    "check:l10n": "node ./scripts/check-l10n.mjs"
+    "check:l10n": "node ./scripts/check-l10n.mjs",
+    "check:release-ui-text": "node ./scripts/check-release-ui-text.mjs"
   },
   "files": [
     "dist/**",

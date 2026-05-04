@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { localize } from "./l10n";
 
 export class CaseInfoDocumentProvider implements vscode.TextDocumentContentProvider {
   private readonly contents = new Map<string, string>();
@@ -39,7 +40,7 @@ export class CaseHistoryDocumentProvider implements vscode.TextDocumentContentPr
   readonly onDidChange = this.emitter.event;
 
   provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.contents.get(uri.toString()) ?? "# Case History\n\n履歴はありません。";
+    return this.contents.get(uri.toString()) ?? `# Case History\n\n${localize("No history.")}`;
   }
 
   setContent(uri: vscode.Uri, content: string): void {

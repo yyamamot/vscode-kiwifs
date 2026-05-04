@@ -16,6 +16,7 @@ import {
   serializeRemoveCaseFromPlanItem
 } from "./quickPickHelpers";
 import { humanMessage } from "./extensionRuntimeSupport";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: KiwiAdapter;
@@ -46,8 +47,8 @@ export function registerCasePlanMembershipCommands(args: {
           const query =
             injectedQuery ??
             (await vscode.window.showInputBox({
-              prompt: "追加する既存テストケース ID または summary を入力してください",
-              placeHolder: "例: 501 / Login"
+              prompt: localize("Enter an existing test case ID or summary to add."),
+              placeHolder: localize("Example: 501 / Login")
             }));
           if (query === undefined) {
             return undefined;
@@ -56,7 +57,7 @@ export function registerCasePlanMembershipCommands(args: {
           const items = await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
-              title: "既存テストケースを検索中..."
+              title: localize("Searching existing test cases...")
             },
             async () => {
               const { adapter, config } = await clientFactory();
@@ -68,14 +69,15 @@ export function registerCasePlanMembershipCommands(args: {
                 }))
               );
               return buildExistingCaseToPlanQuickPickItems(
-                buildExistingCaseToPlanEntries(planCases, resolved.plan.id, query)
+                buildExistingCaseToPlanEntries(planCases, resolved.plan.id, query),
+                { detail: localize("Existing test case to add to this plan") }
               );
             }
           );
 
           if (items.length === 0) {
             void vscode.window.showInformationMessage(
-              "追加できる既存テストケースは見つかりませんでした。"
+              localize("No addable test cases were found.")
             );
             return [];
           }
@@ -92,7 +94,7 @@ export function registerCasePlanMembershipCommands(args: {
           const currentCases = await adapter.listPlanCases(config, resolved.plan.id);
           if (currentCases.some((caseRef) => caseRef.id === picked.entry.caseId)) {
             void vscode.window.showInformationMessage(
-              "テストケースは既にこの計画に含まれています。"
+              localize("The test case is already included in this plan.")
             );
             return {
               planId: resolved.plan.id,
@@ -106,7 +108,7 @@ export function registerCasePlanMembershipCommands(args: {
           provider.refreshListings();
           treeDataProvider.refresh();
           void vscode.window.showInformationMessage(
-            "テスト計画に既存テストケースを追加しました。"
+            localize("Added the existing test case to the test plan.")
           );
           return {
             planId: resolved.plan.id,
@@ -171,12 +173,12 @@ export async function runRemoveCaseFromPlan(args: {
     const { adapter, config } = await args.clientFactory();
     if (args.target?.kind === "case") {
       const proceed =
-        args.injectedConfirmation ??
+          args.injectedConfirmation ??
         ((await vscode.window.showWarningMessage(
-          `この計画からテストケース ${args.target.caseRef.id} - ${args.target.caseRef.summary} を外しますか？`,
+          localize("Remove test case {0} - {1} from this plan?", args.target.caseRef.id, args.target.caseRef.summary),
           { modal: true },
-          "外す"
-        )) === "外す");
+          localize("Remove")
+        )) === localize("Remove"));
       if (!proceed) {
         return {
           planId: args.target.plan.id,
@@ -189,7 +191,7 @@ export async function runRemoveCaseFromPlan(args: {
       await adapter.removeCaseFromPlan(config, args.target.plan.id, args.target.caseRef.id);
       args.provider.refreshListings();
       args.treeDataProvider.refresh();
-      void vscode.window.showInformationMessage("テストケースをこの計画から外しました。");
+      void vscode.window.showInformationMessage(localize("Removed the test case from this plan."));
       return {
         planId: args.target.plan.id,
         caseId: args.target.caseRef.id,
@@ -207,21 +209,22 @@ export async function runRemoveCaseFromPlan(args: {
         location: vscode.ProgressLocation.Notification,
         title:
           args.source === "plan"
-            ? "テスト計画のテストケースを取得中..."
-            : "この計画のテストケースを取得中..."
+            ? localize("Loading test cases in the test plan...")
+            : localize("Loading test cases in this plan...")
       },
       async () =>
         buildRemoveCaseFromPlanQuickPickItems(
           resolved.plan,
-          await adapter.listPlanCases(config, resolved.plan.id)
+          await adapter.listPlanCases(config, resolved.plan.id),
+          { detail: localize("Test case to remove from this plan") }
         )
     );
 
     if (items.length === 0) {
       void vscode.window.showInformationMessage(
         args.source === "plan"
-          ? "テスト計画に含まれるテストケースはありません。"
-          : "この計画に含まれるテストケースはありません。"
+          ? localize("The test plan does not include any test cases.")
+          : localize("This plan does not include any test cases.")
       );
       return [];
     }
@@ -238,11 +241,11 @@ export async function runRemoveCaseFromPlan(args: {
       args.injectedConfirmation ??
       ((await vscode.window.showWarningMessage(
         args.source === "plan"
-          ? `テスト計画からテストケース ${picked.caseRef.id} - ${picked.caseRef.summary} を外しますか？`
-          : `この計画からテストケース ${picked.caseRef.id} - ${picked.caseRef.summary} を外しますか？`,
+          ? localize("Remove test case {0} - {1} from the test plan?", picked.caseRef.id, picked.caseRef.summary)
+          : localize("Remove test case {0} - {1} from this plan?", picked.caseRef.id, picked.caseRef.summary),
         { modal: true },
-        "外す"
-      )) === "外す");
+        localize("Remove")
+      )) === localize("Remove"));
     if (!proceed) {
       return {
         planId: resolved.plan.id,
@@ -257,8 +260,8 @@ export async function runRemoveCaseFromPlan(args: {
     args.treeDataProvider.refresh();
     void vscode.window.showInformationMessage(
       args.source === "plan"
-        ? "テスト計画からテストケースを外しました。"
-        : "テストケースをこの計画から外しました。"
+        ? localize("Removed the test case from the test plan.")
+        : localize("Removed the test case from this plan.")
     );
     return {
       planId: resolved.plan.id,

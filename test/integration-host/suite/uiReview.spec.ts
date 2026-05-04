@@ -496,9 +496,17 @@ async function captureNativeContextMenuEvidence(
       status: "capture-failed",
       screenshot,
       metadata,
-      reason: errorMessage(error)
+      reason: nativeCaptureFailureReason(error)
     };
   }
+}
+
+function nativeCaptureFailureReason(error: unknown): string {
+  const message = errorMessage(error);
+  if (/osascript|System Events|screencapture|window bounds|Extension Development Host/.test(message)) {
+    return "Native context menu screenshot capture failed. See host logs for platform automation details.";
+  }
+  return message;
 }
 
 async function captureScreenshot(screenshotPath: string): Promise<void> {

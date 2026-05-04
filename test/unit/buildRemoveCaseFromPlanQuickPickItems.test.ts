@@ -15,14 +15,14 @@ describe("buildRemoveCaseFromPlanQuickPickItems", () => {
       {
         label: "501 - Login works",
         description: "100 - Regression",
-        detail: "この計画から外すテストケース",
+        detail: "Test case to remove from this plan",
         plan: { id: 100, name: "Regression" },
         caseRef: { id: 501, summary: "Login works" }
       },
       {
         label: "502 - Password reset works",
         description: "100 - Regression",
-        detail: "この計画から外すテストケース",
+        detail: "Test case to remove from this plan",
         plan: { id: 100, name: "Regression" },
         caseRef: { id: 502, summary: "Password reset works" }
       }

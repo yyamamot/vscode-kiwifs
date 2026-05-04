@@ -53,5 +53,7 @@
   "command.kiwi.startLlmEditSession.title": "Kiwi: Prepare LLM Local Mirror Prompt",
   "command.kiwi.createLlmLocalMirrorDiffContext.title": "Kiwi: Prepare LLM Local Mirror Diff",
   "command.kiwi.clearRuntimeLogs.title": "Kiwi: Delete Runtime Logs",
-  "command.kiwi.revealRuntimeLogs.title": "Kiwi: Open Runtime Logs"
+  "command.kiwi.revealRuntimeLogs.title": "Kiwi: Open Runtime Logs",
+  "view.kiwiPlans.welcome.setup": "Configure the Kiwi connection.\n[Set Base URL](command:kiwi.configureBaseUrl)\n[Set Username](command:kiwi.configureUsername)\n[Set Password](command:kiwi.configurePassword)",
+  "view.kiwiPlans.welcome.open": "Open Kiwi Plans.\n[Open Root](command:kiwi.openRoot)\n[Set Base URL](command:kiwi.configureBaseUrl)\n[Set Username](command:kiwi.configureUsername)\n[Set Password](command:kiwi.configurePassword)"
 }

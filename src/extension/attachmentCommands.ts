@@ -20,6 +20,7 @@ import { humanMessage, logInBackground } from "./extensionRuntimeSupport";
 import { pickAttachmentForBrowser } from "./quickPickHelpers";
 import { renderCaseAttachmentsDocument } from "./renderCaseAttachmentsDocument";
 import { resolveCaseAttachmentTarget } from "./commandTargetResolvers";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: ReturnType<typeof createAdapter>;
@@ -77,7 +78,7 @@ export function registerAttachmentCommands(args: {
         canSelectFiles: true,
         canSelectFolders: false,
         canSelectMany: true,
-        openLabel: "添付を追加"
+        openLabel: localize("Add Attachment")
       });
       if (!selection?.[0]) {
         return undefined;
@@ -92,7 +93,7 @@ export function registerAttachmentCommands(args: {
         );
         await attachmentUploadService.uploadFilesToCase(resolved, files);
         void vscode.window.showInformationMessage(
-          files.length === 1 ? "添付完了" : `${files.length} file(s) attached.`
+          files.length === 1 ? localize("Attachment added.") : localize("{0} files attached.", files.length)
         );
         return selection.map((item) => item.fsPath);
       } catch (error) {
@@ -126,7 +127,7 @@ export function registerAttachmentCommands(args: {
 
           const picked = await pickAttachmentForBrowser(
             items,
-            `添付を選択: ${resolved.caseRef.summary}`
+            localize("Select an attachment: {0}", resolved.caseRef.summary)
           );
           if (!picked) {
             return undefined;
@@ -167,7 +168,7 @@ export function registerAttachmentCommands(args: {
 
           const picked = await pickAttachmentForBrowser(
             items,
-            `添付を選択: ${resolved.caseRef.summary}`
+            localize("Select an attachment: {0}", resolved.caseRef.summary)
           );
           if (!picked) {
             return undefined;
@@ -203,7 +204,7 @@ export function registerAttachmentCommands(args: {
           });
           if (viewKind === "unsupported") {
             void vscode.window.showInformationMessage(
-              "This attachment is not supported for inline editor view. Use '添付をブラウザで表示'."
+              localize("This attachment is not supported for inline editor view. Use 'Show Attachment in Browser'.")
             );
             return undefined;
           }

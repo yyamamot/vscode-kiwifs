@@ -20,6 +20,7 @@ import {
 } from "./attachmentDragAndDrop";
 import { type KiwiPlansTreeNode } from "./KiwiPlansTreeDataProvider";
 import { CaseAttachmentContentProvider } from "./documentProviders";
+import { localize } from "./l10n";
 
 export async function openAttachmentInEditor(
   provider: CaseAttachmentContentProvider,
@@ -164,14 +165,14 @@ export class KiwiPlansDragAndDropController
     });
 
     if (!resolvedTarget) {
-      const error = new KiwiError("ValidationFailed", "ケースにドロップしてください。");
+      const error = new KiwiError("ValidationFailed", localize("Drop files onto a case."));
       await this.logDropFailure(error, target);
       throw error;
     }
 
     const files = await extractDroppedFiles(dataTransfer);
     if (files.length === 0) {
-      const error = new KiwiError("ValidationFailed", "ドロップされたファイルを取得できませんでした。");
+      const error = new KiwiError("ValidationFailed", localize("Could not read dropped files."));
       await this.logDropFailure(error, resolvedTarget);
       void vscode.window.showInformationMessage(error.message);
       return;
@@ -198,7 +199,7 @@ export class KiwiPlansDragAndDropController
             details: `count=${uploaded}`
           });
           void vscode.window.showInformationMessage(
-            uploaded === 1 ? "添付完了" : `${uploaded} file(s) attached.`
+            uploaded === 1 ? localize("Attachment added.") : localize("{0} files attached.", uploaded)
           );
         }
       );

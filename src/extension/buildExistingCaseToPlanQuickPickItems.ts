@@ -68,12 +68,13 @@ export function buildExistingCaseToPlanEntries(
 }
 
 export function buildExistingCaseToPlanQuickPickItems(
-  entries: ExistingCaseToPlanEntry[]
+  entries: ExistingCaseToPlanEntry[],
+  labels: { detail?: string } = {}
 ): ExistingCaseToPlanQuickPickItem[] {
   return entries.map((entry) => ({
     label: `${entry.caseId} - ${entry.summary}`,
     description: `plans: ${entry.plans.map((plan) => `${plan.id} - ${plan.name}`).join(", ")}`,
-    detail: "この計画に追加する既存テストケース",
+    detail: labels.detail ?? "Existing test case to add to this plan",
     entry
   }));
 }

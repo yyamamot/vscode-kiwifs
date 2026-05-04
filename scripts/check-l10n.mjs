@@ -14,6 +14,7 @@ const [englishBundle, japaneseBundle, packageJson, packageNls, packageNlsJa] = a
 ]);
 
 assertSameKeys("l10n/bundle.l10n.json", englishBundle, "l10n/bundle.l10n.ja.json", japaneseBundle);
+assertSameKeys("package.nls.json", packageNls, "package.nls.ja.json", packageNlsJa);
 assertPackageNls(packageJson, packageNls, packageNlsJa);
 
 const extensionFiles = await listTypeScriptFiles(join(root, "src", "extension"));
@@ -81,18 +82,43 @@ function assertPackageNls(manifest, english, japanese) {
   if (manifest.l10n !== "./l10n") {
     failures.push(`package.json l10n must be ./l10n, actual=${String(manifest.l10n)}`);
   }
-  const keys = [];
+  const keys = extractPackageNlsKeys(manifest);
   for (const command of manifest.contributes?.commands ?? []) {
     const title = command.title ?? "";
     const match = /^%(.+)%$/.exec(title);
     if (!match) {
       failures.push(`command ${command.command} title must be an NLS placeholder, actual=${title}`);
-      continue;
     }
-    keys.push(match[1]);
   }
   assertKeysPresent("package.nls.json", english, keys);
   assertKeysPresent("package.nls.ja.json", japanese, keys);
+}
+
+function extractPackageNlsKeys(value) {
+  const keys = [];
+  visit(value);
+  return Array.from(new Set(keys)).sort();
+
+  function visit(current) {
+    if (typeof current === "string") {
+      const exact = /^%([^%]+)%$/.exec(current);
+      if (exact) {
+        keys.push(exact[1]);
+      }
+      return;
+    }
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        visit(item);
+      }
+      return;
+    }
+    if (current && typeof current === "object") {
+      for (const item of Object.values(current)) {
+        visit(item);
+      }
+    }
+  }
 }
 
 function assertKeysPresent(name, object, keys) {

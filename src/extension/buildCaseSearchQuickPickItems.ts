@@ -127,7 +127,7 @@ export function paginateCaseSearchItems<T>(
 
 export function buildCaseSearchQuickPickItems(
   matches: CaseSearchMatch[],
-  input: { totalCount?: number; hasMore?: boolean } = {}
+  input: { totalCount?: number; hasMore?: boolean; moreLabel?: string; moreDetail?: string } = {}
 ): CaseSearchQuickPickItem[] {
   const items: CaseSearchQuickPickItem[] = matches.map(({ plan, caseRef, textSnippet }) => ({
     label: `${caseRef.id} - ${caseRef.summary}`,
@@ -139,9 +139,9 @@ export function buildCaseSearchQuickPickItems(
   }));
   if (input.hasMore) {
     items.push({
-      label: "さらに表示",
+      label: input.moreLabel ?? "Show More",
       description: `${matches.length} / ${input.totalCount ?? matches.length}`,
-      detail: "検索結果を追加表示します",
+      detail: input.moreDetail ?? "Show more search results.",
       itemType: "more",
       plan: { id: 0, name: "" },
       caseRef: { id: 0, summary: "" }

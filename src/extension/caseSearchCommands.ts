@@ -14,6 +14,7 @@ import {
   pickCaseSearchItem,
   serializeCaseSearchItems
 } from "./quickPickHelpers";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: ReturnType<typeof createAdapter>;
@@ -42,8 +43,8 @@ export function registerCaseSearchCommands(args: {
           const query =
             providedQuery ??
             (await vscode.window.showInputBox({
-              prompt: "テストケース ID または summary を入力してください",
-              placeHolder: "例: 501 / Login"
+              prompt: localize("Enter a test case ID or summary."),
+              placeHolder: localize("Example: 501 / Login")
             }));
           if (query === undefined) {
             return undefined;
@@ -52,7 +53,7 @@ export function registerCaseSearchCommands(args: {
           const matches = await vscode.window.withProgress(
             {
               location: vscode.ProgressLocation.Notification,
-              title: "テストケースを検索中..."
+              title: localize("Searching test cases...")
             },
             async () => {
               const { adapter, config } = await clientFactory();
@@ -78,7 +79,7 @@ export function registerCaseSearchCommands(args: {
           );
 
           if (matches.length === 0) {
-            void vscode.window.showInformationMessage("一致するテストケースはありません。");
+            void vscode.window.showInformationMessage(localize("No matching test cases."));
             return [];
           }
 

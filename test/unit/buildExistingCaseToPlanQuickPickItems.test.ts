@@ -36,7 +36,7 @@ describe("buildExistingCaseToPlanQuickPickItems", () => {
       {
         label: "502 - Password reset works",
         description: "plans: 100 - Regression, 200 - Secondary",
-        detail: "この計画に追加する既存テストケース",
+        detail: "Existing test case to add to this plan",
         entry: {
           caseId: 502,
           summary: "Password reset works",

@@ -92,12 +92,14 @@ export interface UiReviewActionSurfaceEvidence {
   target: string;
   title?: string;
   overview?: {
+    title?: string;
     rows?: Array<{ label: string; value: string }>;
   };
   items: Array<{
     id: string;
     category: string;
     label: string;
+    description?: string;
     command: string;
     mode: string;
   }>;
@@ -126,6 +128,7 @@ export interface UiReviewMenuState {
 
 const REQUIRED_VISIBLE_REVIEW_IDS = ["shell", "filter-form", "result-list"] as const;
 const MAJOR_OVERFLOW_REVIEW_IDS = new Set(["shell", "filter-form", "result-list", "bulk-actions"]);
+const JAPANESE_TEXT_PATTERN = /[\u3040-\u30ff\u3400-\u9fff]/;
 const PLAN_CONTEXT_WHEN = "view == kiwiPlans && viewItem == plan";
 const CASE_CONTEXT_WHEN = "view == kiwiPlans && viewItem == caseDocument";
 const REQUIRED_PLAN_COMMANDS = [
@@ -228,6 +231,16 @@ export function evaluateUiReviewSnapshot(snapshot: UiReviewSnapshot): UiReviewCh
         passed: false,
         summary: `Major UI region ${element.reviewId} overflows its own bounds.`,
         evidence: `scroll=${element.scrollWidth}x${element.scrollHeight}, client=${element.clientWidth}x${element.clientHeight}`
+      });
+    }
+
+    if (hasJapaneseText(element.label)) {
+      checks.push({
+        id: `l10n-no-japanese-${element.reviewId}`,
+        severity: "error",
+        passed: false,
+        summary: `Visible element ${element.reviewId} contains Japanese text in an English UI review run.`,
+        evidence: element.label
       });
     }
   }
@@ -356,7 +369,7 @@ function commandPaletteChecks(commandPalette: UiReviewMenuContribution[]): UiRev
 }
 
 function actionSurfaceChecks(actionSurfaces: UiReviewActionSurfaceEvidence[]): UiReviewCheck[] {
-  const checks = ["plan", "case"].map((target) => {
+  const checks: UiReviewCheck[] = ["plan", "case"].map((target) => {
     const surface = actionSurfaces.find((entry) => entry.target === target);
     return {
       id: `treeview-action-surface-${target}`,
@@ -372,12 +385,12 @@ function actionSurfaceChecks(actionSurfaces: UiReviewActionSurfaceEvidence[]): U
     severity: "error" as const,
     passed: Boolean(
       planSurface &&
-      planOverviewLabels.has("テスト計画ID") &&
-      planOverviewLabels.has("名前") &&
-      planOverviewLabels.has("説明") &&
-      planOverviewLabels.has("配下テストケース数") &&
-      planOverviewLabels.has("テスト実行数") &&
-      planOverviewLabels.has("ローカルミラー")
+      hasAnyLabel(planOverviewLabels, ["Test Plan ID", "テスト計画ID"]) &&
+      hasAnyLabel(planOverviewLabels, ["Name", "名前"]) &&
+      hasAnyLabel(planOverviewLabels, ["Description", "説明"]) &&
+      hasAnyLabel(planOverviewLabels, ["Child Test Cases", "配下テストケース数"]) &&
+      hasAnyLabel(planOverviewLabels, ["Test Runs", "テスト実行数"]) &&
+      hasAnyLabel(planOverviewLabels, ["Local Mirror", "ローカルミラー"])
     ),
     summary: "plan action surface must show plan ID, name, text, case count, test run count, and local mirror summary in the overview."
   });
@@ -393,13 +406,45 @@ function actionSurfaceChecks(actionSurfaces: UiReviewActionSurfaceEvidence[]): U
   checks.push({
     id: "treeview-action-surface-case-test-execution-labels",
     severity: "error" as const,
-    passed: caseExecutionResult?.label === "テスト実行結果を更新" &&
+    passed: matchesAnyLabel(caseExecutionResult?.label, ["Update Test Execution Result", "テスト実行結果を更新"]) &&
       caseExecutionResult?.category === "execution" &&
-      caseExecutionBoard?.label === "テスト実行を管理" &&
+      matchesAnyLabel(caseExecutionBoard?.label, ["Manage Test Executions", "テスト実行を管理"]) &&
       caseExecutionBoard?.category === "execution",
-    summary: "case action surface must label Test Run/TestExecution actions as テスト実行."
+    summary: "case action surface must label Test Run/TestExecution actions consistently."
   });
+  checks.push(...noJapaneseActionSurfaceChecks(actionSurfaces));
   return checks;
+}
+
+function noJapaneseActionSurfaceChecks(actionSurfaces: UiReviewActionSurfaceEvidence[]): UiReviewCheck[] {
+  return actionSurfaces.flatMap((surface) => {
+    const texts = [
+      surface.title,
+      surface.overview?.title,
+      ...(surface.overview?.rows ?? []).flatMap((row) => [row.label, row.value]),
+      ...surface.items.flatMap((item) => [item.category, item.label, item.description, item.command, item.mode])
+    ].filter((text): text is string => Boolean(text));
+    const japaneseTexts = texts.filter(hasJapaneseText);
+    return [{
+      id: `treeview-action-surface-${surface.target}-l10n-no-japanese`,
+      severity: "error" as const,
+      passed: japaneseTexts.length === 0,
+      summary: `${surface.target} action surface must not contain Japanese text in an English UI review run.`,
+      evidence: japaneseTexts.join(" | ")
+    }];
+  });
+}
+
+function hasAnyLabel(labels: Set<string>, expected: readonly string[]): boolean {
+  return expected.some((label) => labels.has(label));
+}
+
+function matchesAnyLabel(actual: string | undefined, expected: readonly string[]): boolean {
+  return actual !== undefined && expected.includes(actual);
+}
+
+function hasJapaneseText(value: string | undefined): boolean {
+  return Boolean(value && JAPANESE_TEXT_PATTERN.test(value));
 }
 
 function nativeContextMenuChecks(

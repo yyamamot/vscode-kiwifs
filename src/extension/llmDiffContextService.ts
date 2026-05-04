@@ -41,6 +41,7 @@ const DEFAULT_DIFF_UI_LABELS: LlmPromptUiLabels = {
   kiwiApply: "Apply to Kiwi",
   takeRemote: "Take Remote Changes"
 };
+const DEFAULT_COMPARE_AGAIN_LABEL = "Check diffs or Compare Again";
 
 const DIFF_CONTEXT_DIR = path.join(".kiwi-agent", "diff", "current");
 
@@ -50,7 +51,7 @@ export async function createLlmLocalMirrorDiffContext(
   options: LlmDiffContextOptions = {}
 ): Promise<LlmDiffContextResult> {
   if (!state || state.resources.length === 0) {
-    throw new Error("No local mirror SCM snapshot. Run 差分を確認 or 再比較 first.");
+    throw new Error(`No local mirror SCM snapshot. Run ${DEFAULT_COMPARE_AGAIN_LABEL} first.`);
   }
 
   const now = options.now ?? new Date();

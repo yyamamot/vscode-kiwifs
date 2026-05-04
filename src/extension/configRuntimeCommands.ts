@@ -13,6 +13,7 @@ import {
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { KiwiFileSystemProvider } from "../provider/KiwiFileSystemProvider";
 import { KiwiPlansTreeDataProvider } from "./KiwiPlansTreeDataProvider";
+import { localize } from "./l10n";
 
 export function registerConfigRuntimeCommands(args: {
   context: vscode.ExtensionContext;
@@ -41,8 +42,8 @@ export function registerConfigRuntimeCommands(args: {
         injectedInput ??
         (await vscode.window.showInputBox({
           placeHolder: "https://kiwi.example.com/",
-          prompt: "接続先の Kiwi base URL を入力してください",
-          title: "Kiwi: ベース URL を設定",
+          prompt: localize("Enter the Kiwi base URL."),
+          title: localize("Kiwi: Set Base URL"),
           value: configuration.get<string>("baseUrl") ?? ""
         }));
       if (input === undefined) {
@@ -51,12 +52,12 @@ export function registerConfigRuntimeCommands(args: {
       const normalized = normalizeBaseUrlInput(input);
       if (!normalized) {
         void vscode.window.showErrorMessage(
-          "Kiwi base URL には http:// または https:// の URL を入力してください。"
+          localize("Kiwi base URL must start with http:// or https://.")
         );
         return undefined;
       }
       await configuration.update("baseUrl", normalized, vscode.ConfigurationTarget.Global);
-      void vscode.window.showInformationMessage("Kiwi base URL を更新しました。");
+      void vscode.window.showInformationMessage(localize("Kiwi base URL was updated."));
       return normalized;
     }),
     vscode.commands.registerCommand("kiwi.configureUsername", async (injectedInput?: string) => {
@@ -64,8 +65,8 @@ export function registerConfigRuntimeCommands(args: {
         injectedInput ??
         (await vscode.window.showInputBox({
           placeHolder: "admin",
-          prompt: "Kiwi ユーザ名を入力してください",
-          title: "Kiwi: ユーザー名を設定",
+          prompt: localize("Enter the Kiwi username."),
+          title: localize("Kiwi: Set Username"),
           value: (await readStoredUsername(context)) ?? ""
         }));
       if (input === undefined) {
@@ -73,11 +74,11 @@ export function registerConfigRuntimeCommands(args: {
       }
       const normalized = normalizeSecretInput(input);
       if (!normalized) {
-        void vscode.window.showErrorMessage("Kiwi ユーザ名は空にできません。");
+        void vscode.window.showErrorMessage(localize("Kiwi username cannot be empty."));
         return undefined;
       }
       await storeUsername(context, normalized);
-      void vscode.window.showInformationMessage("Kiwi ユーザ名を保存しました。");
+      void vscode.window.showInformationMessage(localize("Kiwi username was saved."));
       return normalized;
     }),
     vscode.commands.registerCommand("kiwi.configurePassword", async (injectedInput?: string) => {
@@ -86,29 +87,29 @@ export function registerConfigRuntimeCommands(args: {
         (await vscode.window.showInputBox({
           password: true,
           placeHolder: "Paste password",
-          prompt: "Kiwi パスワードを入力してください",
-          title: "Kiwi: パスワードを設定"
+          prompt: localize("Enter the Kiwi password."),
+          title: localize("Kiwi: Set Password")
         }));
       if (input === undefined) {
         return undefined;
       }
       const normalized = normalizeSecretInput(input);
       if (!normalized) {
-        void vscode.window.showErrorMessage("Kiwi パスワードは空にできません。");
+        void vscode.window.showErrorMessage(localize("Kiwi password cannot be empty."));
         return undefined;
       }
       await storePassword(context, normalized);
-      void vscode.window.showInformationMessage("Kiwi パスワードを保存しました。");
+      void vscode.window.showInformationMessage(localize("Kiwi password was saved."));
       return normalized;
     }),
     vscode.commands.registerCommand("kiwi.clearBaseUrl", async (confirmed?: boolean) => {
       const proceed =
         confirmed === true ||
         (await vscode.window.showWarningMessage(
-          "Base URL をクリアしますか？",
+          localize("Clear the Base URL?"),
           { modal: true },
-          "クリア"
-        )) === "クリア";
+          localize("Clear")
+        )) === localize("Clear");
       if (!proceed) {
         return false;
       }
@@ -117,47 +118,47 @@ export function registerConfigRuntimeCommands(args: {
         .update("baseUrl", "", vscode.ConfigurationTarget.Global);
       provider.refreshListings();
       treeDataProvider.refresh();
-      void vscode.window.showInformationMessage("Kiwi base URL をクリアしました。");
+      void vscode.window.showInformationMessage(localize("Kiwi base URL was cleared."));
       return true;
     }),
     vscode.commands.registerCommand("kiwi.clearUsername", async (confirmed?: boolean) => {
       const proceed =
         confirmed === true ||
         (await vscode.window.showWarningMessage(
-          "ユーザ名をクリアしますか？",
+          localize("Clear the username?"),
           { modal: true },
-          "クリア"
-        )) === "クリア";
+          localize("Clear")
+        )) === localize("Clear");
       if (!proceed) {
         return false;
       }
       await clearUsername(context);
-      void vscode.window.showInformationMessage("Kiwi ユーザ名をクリアしました。");
+      void vscode.window.showInformationMessage(localize("Kiwi username was cleared."));
       return true;
     }),
     vscode.commands.registerCommand("kiwi.clearPassword", async (confirmed?: boolean) => {
       const proceed =
         confirmed === true ||
         (await vscode.window.showWarningMessage(
-          "パスワードをクリアしますか？",
+          localize("Clear the password?"),
           { modal: true },
-          "クリア"
-        )) === "クリア";
+          localize("Clear")
+        )) === localize("Clear");
       if (!proceed) {
         return false;
       }
       await clearPassword(context);
-      void vscode.window.showInformationMessage("Kiwi パスワードをクリアしました。");
+      void vscode.window.showInformationMessage(localize("Kiwi password was cleared."));
       return true;
     }),
     vscode.commands.registerCommand("kiwi.clearConfiguration", async (confirmed?: boolean) => {
       const proceed =
         confirmed === true ||
         (await vscode.window.showWarningMessage(
-          "Kiwi の接続設定をすべてクリアしますか？",
+          localize("Clear all Kiwi connection settings?"),
           { modal: true },
-          "クリア"
-        )) === "クリア";
+          localize("Clear")
+        )) === localize("Clear");
       if (!proceed) {
         return false;
       }
@@ -167,7 +168,7 @@ export function registerConfigRuntimeCommands(args: {
       await clearCredentials(context);
       provider.refreshListings();
       treeDataProvider.refresh();
-      void vscode.window.showInformationMessage("Kiwi 接続設定をすべてクリアしました。");
+      void vscode.window.showInformationMessage(localize("Kiwi connection settings were cleared."));
       return true;
     }),
     vscode.commands.registerCommand("kiwi.openTreeItem", async (uri?: vscode.Uri) => {

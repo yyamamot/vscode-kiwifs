@@ -5,6 +5,7 @@ import { parseCaseDocumentIdentity } from "./extensionUris";
 import { getTabUriString } from "./extensionRuntimeSupport";
 import { type MetadataEditorSaveResult } from "./caseMetadataEditorController";
 import { type ExecutionResultSaveResult } from "./executionResultController";
+import { localize } from "./l10n";
 
 export async function handleCaseMetadataEditorSaved(args: {
   caseProvider: KiwiFileSystemProvider;
@@ -42,8 +43,8 @@ export async function handleCaseMetadataEditorSaved(args: {
 export async function handleExecutionResultSaved(result: ExecutionResultSaveResult): Promise<void> {
   void vscode.window.showInformationMessage(
     result.changedFields.length === 0
-      ? "実行結果に変更はありません。"
-      : "実行結果を保存しました。"
+      ? localize("No execution result changes.")
+      : localize("Execution result saved.")
   );
 }
 

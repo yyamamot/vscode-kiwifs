@@ -469,11 +469,15 @@ async function loadTemplateState(
 ): Promise<{ templateOptions: CaseTemplateOption[]; templateWarning?: string }> {
   try {
     return {
-      templateOptions: buildCaseTemplateOptions(await adapter.listCaseTemplates(config))
+      templateOptions: buildCaseTemplateOptions(await adapter.listCaseTemplates(config), {
+        defaultTemplateName: localize("Default Template")
+      })
     };
   } catch (error) {
     return {
-      templateOptions: buildCaseTemplateOptions([]),
+      templateOptions: buildCaseTemplateOptions([], {
+        defaultTemplateName: localize("Default Template")
+      }),
       templateWarning: localize("Could not load Kiwi templates. You can create with the default template.")
     };
   }

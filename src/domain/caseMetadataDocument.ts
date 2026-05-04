@@ -26,11 +26,14 @@ export interface CaseTemplateOption {
   isDefault: boolean;
 }
 
-export function buildCaseTemplateOptions(templates: KiwiTemplate[]): CaseTemplateOption[] {
+export function buildCaseTemplateOptions(
+  templates: KiwiTemplate[],
+  options: { defaultTemplateName?: string } = {}
+): CaseTemplateOption[] {
   return [
     {
       id: DEFAULT_TEMPLATE_ID,
-      name: "既定テンプレート",
+      name: options.defaultTemplateName ?? "Default Template",
       text: DEFAULT_CASE_BODY_TEMPLATE,
       isDefault: true
     },

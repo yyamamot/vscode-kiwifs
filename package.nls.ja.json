@@ -53,5 +53,7 @@
   "command.kiwi.startLlmEditSession.title": "Kiwi: LLM Local Mirror Prompt を準備",
   "command.kiwi.createLlmLocalMirrorDiffContext.title": "Kiwi: LLM Local Mirror Diff を準備",
   "command.kiwi.clearRuntimeLogs.title": "Kiwi: ランタイムログを削除",
-  "command.kiwi.revealRuntimeLogs.title": "Kiwi: ランタイムログを開く"
+  "command.kiwi.revealRuntimeLogs.title": "Kiwi: ランタイムログを開く",
+  "view.kiwiPlans.welcome.setup": "Kiwi への接続を設定します。\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)",
+  "view.kiwiPlans.welcome.open": "Kiwi Plans を開きます。\n[ルートを開く](command:kiwi.openRoot)\n[ベース URL を設定](command:kiwi.configureBaseUrl)\n[ユーザー名を設定](command:kiwi.configureUsername)\n[パスワードを設定](command:kiwi.configurePassword)"
 }

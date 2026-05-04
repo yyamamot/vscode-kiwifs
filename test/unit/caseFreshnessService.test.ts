@@ -77,7 +77,7 @@ describe("CaseFreshnessService", () => {
 
     await expect(service.checkUri(vscode.Uri.parse("kiwi:/plans/100/cases/501.md"))).resolves.toMatchObject({
       status: "unknown",
-      reason: "Case Document を開いてから最新状態を確認してください。"
+      reason: "Open the Case Document before checking the latest state."
     });
   });
 

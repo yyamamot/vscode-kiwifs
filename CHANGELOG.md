@@ -2,6 +2,10 @@
 
 [日本語](https://github.com/yyamamot/vscode-kiwifs/blob/main/CHANGELOG.ja.md) | English
 
+## 0.0.6 (2026-05-04)
+
+- Fixed remaining Japanese release UI text in English locale and added a release-visible text audit to the UI gate.
+
 ## 0.0.5 (2026-05-04)
 
 - Fixed cases where normally installed extensions could be detected as unexpectedly modified.

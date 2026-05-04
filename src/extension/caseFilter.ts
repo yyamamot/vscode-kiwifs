@@ -44,7 +44,7 @@ export async function filterCasesWithMetadata(args: {
 }): Promise<CaseFilterResult[]> {
   const filter = normalizeCaseFilterFormState(args.formState, args.options);
   if (!hasAnyCaseFilterCondition(filter)) {
-    throw new KiwiError("ValidationFailed", "検索条件を入力してください。");
+    throw new KiwiError("ValidationFailed", "Enter conditions and search.");
   }
 
   const plans =

@@ -4,6 +4,7 @@ type CaseHistoryDocumentInput = {
   caseId: number;
   summary: string;
   history: KiwiCaseHistoryEntry[];
+  emptyHistoryLabel?: string;
 };
 
 export function renderCaseHistoryDocument(input: CaseHistoryDocumentInput): string {
@@ -16,7 +17,7 @@ export function renderCaseHistoryDocument(input: CaseHistoryDocumentInput): stri
   ];
 
   if (sortedHistory.length === 0) {
-    lines.push("履歴はありません。");
+    lines.push(input.emptyHistoryLabel ?? "No history.");
   } else {
     for (const [index, entry] of sortedHistory.entries()) {
       if (index > 0) {

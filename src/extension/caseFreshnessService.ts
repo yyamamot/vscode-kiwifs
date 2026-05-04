@@ -36,7 +36,7 @@ export class CaseFreshnessService {
         status: "unknown",
         caseId: 0,
         planId: 0,
-        reason: "Case Document を開いてから最新状態を確認してください。"
+        reason: "Open the Case Document before checking the latest state."
       };
     }
     return this.checkSession(session);
@@ -52,7 +52,7 @@ export class CaseFreshnessService {
           caseId: session.caseId,
           planId: session.planId,
           localVersionToken: session.versionToken,
-          reason: "remote history が空のため最新状態を判定できません。"
+          reason: "Could not determine the latest state because remote history is empty."
         };
       }
 

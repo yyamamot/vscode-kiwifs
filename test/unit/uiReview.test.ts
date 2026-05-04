@@ -109,6 +109,28 @@ describe("ui-review", () => {
     expect(checks.filter((check) => !check.passed && check.severity === "error")).toEqual([]);
   });
 
+  it("fails when English UI review evidence contains Japanese text", () => {
+    const state = menuState();
+    state.actionSurfaces?.push({
+      target: "case-ja",
+      screenshot: "/tmp/case-ja.png",
+      items: [{
+        id: "case-ja-action",
+        category: "inspect",
+        label: "テストケースの操作",
+        description: "Japanese text should fail in English UI review evidence.",
+        command: "kiwi.showCaseTreeItemActions",
+        mode: "normal"
+      }]
+    });
+    const checks = evaluateTreeViewContextMenuState(state);
+
+    expect(resultForUiReviewChecks(checks)).toBe("needs-fix");
+    expect(checks.some((check) =>
+      check.id === "treeview-action-surface-case-ja-l10n-no-japanese" && !check.passed
+    )).toBe(true);
+  });
+
   it("fails when a required TreeView command is missing", () => {
     const state = menuState();
     state.menus.viewItemContext = state.menus.viewItemContext.filter(
@@ -229,12 +251,12 @@ function menuState(): UiReviewMenuState {
         screenshot: "/tmp/plan.png",
         overview: {
           rows: [
-            { label: "テスト計画ID", value: "100" },
-            { label: "名前", value: "Regression" },
-            { label: "説明", value: "-" },
-            { label: "配下テストケース数", value: "4" },
-            { label: "テスト実行数", value: "1" },
-            { label: "ローカルミラー", value: "未比較" }
+            { label: "Test Plan ID", value: "100" },
+            { label: "Name", value: "Regression" },
+            { label: "Description", value: "-" },
+            { label: "Child Test Cases", value: "4" },
+            { label: "Test Runs", value: "1" },
+            { label: "Local Mirror", value: "Not Compared" }
           ]
         },
         items: planCommands.map((command) => ({
@@ -254,9 +276,9 @@ function menuState(): UiReviewMenuState {
             ? "execution"
             : "inspect",
           label: command === "kiwi.recordCaseExecutionResult"
-            ? "テスト実行結果を更新"
+            ? "Update Test Execution Result"
             : command === "kiwi.manageCaseExecutionsAcrossRuns"
-              ? "テスト実行を管理"
+              ? "Manage Test Executions"
               : command,
           command,
           mode: "normal"

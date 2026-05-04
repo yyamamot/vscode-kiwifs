@@ -94,7 +94,7 @@ describe("caseMetadataDocument", () => {
     expect(options).toEqual([
       {
         id: DEFAULT_TEMPLATE_ID,
-        name: "既定テンプレート",
+        name: "Default Template",
         text: DEFAULT_CASE_BODY_TEMPLATE,
         isDefault: true
       },

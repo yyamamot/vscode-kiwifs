@@ -36,6 +36,7 @@ import {
 } from "./commandTargetResolvers";
 import { pickCaseHistoryDiffPair } from "./quickPickHelpers";
 import { createRequestId } from "./randomIds";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: ReturnType<typeof createAdapter>;
@@ -178,7 +179,8 @@ export function registerCaseDocumentCommands(args: {
           renderCaseHistoryDocument({
             caseId: resolvedTarget.caseRef.id,
             summary: resolvedTarget.caseRef.summary,
-            history
+            history,
+            emptyHistoryLabel: localize("No history.")
           })
         );
         await vscode.commands.executeCommand("vscode.open", uri);
@@ -226,7 +228,7 @@ export async function checkCaseFreshness(args: {
   if (result.status === "fresh") {
     args.treeDataProvider.clearCaseFreshness(result.caseId);
     if (args.showActions) {
-      void vscode.window.showInformationMessage("テストケースは最新です。");
+      void vscode.window.showInformationMessage(localize("The test case is up to date."));
     }
     return result;
   }
@@ -234,17 +236,19 @@ export async function checkCaseFreshness(args: {
   if (result.status === "stale") {
     args.treeDataProvider.markCaseStale(
       result.caseId,
-      "remote が更新されています。差分確認または明示更新してください。"
+      localize("Remote content has changed. Check the diff or refresh explicitly.")
     );
     if (args.showActions) {
+      const showDiff = localize("Show Test Case Diff");
+      const refresh = localize("Refresh Test Case");
       const action = await vscode.window.showWarningMessage(
-        "remote が更新されています。差分確認または明示更新してください。",
-        "テストケースの差分を表示",
-        "テストケースを更新"
+        localize("Remote content has changed. Check the diff or refresh explicitly."),
+        showDiff,
+        refresh
       );
-      if (action === "テストケースの差分を表示") {
+      if (action === showDiff) {
         await vscode.commands.executeCommand("kiwi.showCaseDiff", resolvedTarget);
-      } else if (action === "テストケースを更新") {
+      } else if (action === refresh) {
         if (vscode.window.activeTextEditor?.document.uri.toString() !== uri.toString()) {
           await vscode.commands.executeCommand("vscode.open", uri);
         }
@@ -256,7 +260,7 @@ export async function checkCaseFreshness(args: {
 
   if (args.showActions) {
     void vscode.window.showInformationMessage(
-      result.reason ?? "最新状態を判定できませんでした。"
+      result.reason ?? localize("Could not determine the latest state.")
     );
   }
   return result;

@@ -102,7 +102,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const treeDataProvider = new KiwiPlansTreeDataProvider(clientFactory, logger);
   const provider = new KiwiFileSystemProvider(clientFactory, logger, ({ caseId }) => {
-    treeDataProvider.markCaseStale(caseId, "remote が更新されています。差分確認または明示更新してください。");
+    treeDataProvider.markCaseStale(
+      caseId,
+      localize("Remote content has changed. Check the diff or refresh explicitly.")
+    );
   });
   const caseFreshnessService = new CaseFreshnessService(clientFactory, provider);
   const autoCaseFreshnessState = {

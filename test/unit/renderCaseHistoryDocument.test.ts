@@ -46,6 +46,6 @@ describe("renderCaseHistoryDocument", () => {
         summary: "Login works",
         history: []
       })
-    ).toContain("履歴はありません。");
+    ).toContain("No history.");
   });
 });

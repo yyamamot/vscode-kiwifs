@@ -2,6 +2,10 @@
 
 [English](https://github.com/yyamamot/vscode-kiwifs/blob/main/CHANGELOG.md) | 日本語
 
+## 0.0.6 (2026-05-04)
+
+- 英語 locale のリリース UI に残っていた日本語表示を解消し、UI gate に release-visible text 監査を追加した
+
 ## 0.0.5 (2026-05-04)
 
 - 通常インストールした拡張が、意図せず変更ありとして検知される場合がある問題を修正した

@@ -285,10 +285,10 @@ export function registerLocalMirrorCommands(args: {
               } else {
                 const confirmed =
                   (await vscode.window.showWarningMessage(
-                    "配下のローカルミラーに未反映変更があります。Kiwi の最新本文でまとめて上書きしますか？",
+                    localize("Child local mirrors have unapplied changes. Overwrite them with the latest Kiwi content?"),
                     { modal: true },
-                    "上書きする"
-                  )) === "上書きする";
+                    localize("Overwrite")
+                  )) === localize("Overwrite");
                 forceOverwrite = confirmed;
               }
             }
@@ -396,10 +396,10 @@ export function registerLocalMirrorCommands(args: {
               ) {
                 const confirmed =
                   (await vscode.window.showWarningMessage(
-                    "ローカルミラーの未反映変更を破棄して、Kiwi の最新本文で上書きしますか？",
+                    localize("Discard unapplied local mirror changes and overwrite with the latest Kiwi content?"),
                     { modal: true },
-                    "上書きする"
-                  )) === "上書きする";
+                    localize("Overwrite")
+                  )) === localize("Overwrite");
                 if (!confirmed) {
                   return undefined;
                 }

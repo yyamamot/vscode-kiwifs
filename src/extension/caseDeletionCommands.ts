@@ -5,6 +5,7 @@ import { KiwiFileSystemProvider } from "../provider/KiwiFileSystemProvider";
 import { KiwiPlansTreeDataProvider, KiwiPlansTreeNode } from "./KiwiPlansTreeDataProvider";
 import { closeOpenedCaseDocumentsForDeletedCase } from "./caseDocumentLifecycle";
 import { humanMessage } from "./extensionRuntimeSupport";
+import { localize } from "./l10n";
 
 type ClientFactory = () => Promise<{
   adapter: ReturnType<typeof createAdapter>;
@@ -33,10 +34,14 @@ export function registerCaseDeletionCommands(args: {
           const proceed =
             injectedConfirmation ??
             ((await vscode.window.showWarningMessage(
-              `テストケース ${resolved.caseRef.id} - ${resolved.caseRef.summary} を削除しますか？ Kiwi TCMS 上の case 本体を削除し、開いている Case Document は閉じて未保存変更も破棄します。`,
+              localize(
+                "Delete test case {0} - {1}? This deletes the case in Kiwi TCMS, closes open Case Documents, and discards unsaved changes.",
+                resolved.caseRef.id,
+                resolved.caseRef.summary
+              ),
               { modal: true },
-              "削除"
-            )) === "削除");
+              localize("Delete")
+            )) === localize("Delete"));
           if (!proceed) {
             return {
               planId: resolved.plan.id,
@@ -51,7 +56,7 @@ export function registerCaseDeletionCommands(args: {
           provider.refreshListings();
           treeDataProvider.clearCaseFreshness(resolved.caseRef.id);
           treeDataProvider.refresh();
-          void vscode.window.showInformationMessage("テストケースを削除しました。");
+          void vscode.window.showInformationMessage(localize("Deleted the test case."));
           return {
             planId: resolved.plan.id,
             caseId: resolved.caseRef.id,
