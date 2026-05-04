@@ -72,4 +72,14 @@ describe("localEnv", () => {
     expect(localEnvValue("KIWI_PASSWORD")).toBeUndefined();
     expect(isLocalEnvResolved()).toBe(false);
   });
+
+  it("does not resolve .env from process cwd", async () => {
+    writeFileSync(path.join(tempRoot, ".env"), "KIWI_BASE_URL=https://cwd.example/\n", "utf8");
+
+    const { localEnvValue, resolveLocalEnvPath, isLocalEnvResolved } = await import("../../src/config/localEnv");
+
+    expect(resolveLocalEnvPath()).toBeUndefined();
+    expect(localEnvValue("KIWI_BASE_URL")).toBeUndefined();
+    expect(isLocalEnvResolved()).toBe(false);
+  });
 });

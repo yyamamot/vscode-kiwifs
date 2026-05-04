@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { KiwiPlan, PlanCaseRef } from "../types";
+import { localize } from "./l10n";
 
 export const KIWI_LOCAL_MIRROR_SOURCE_CONTROL_ID = "kiwi-local-mirror-compare";
 export const KIWI_LOCAL_MIRROR_SOURCE_CONTROL_LABEL = "Kiwi Local Mirror Compare";
@@ -102,10 +103,10 @@ function buildResourceState(resource: LocalMirrorScmResource): LocalMirrorScmRes
         : KIWI_LOCAL_MIRROR_CONFLICT_CONTEXT;
   const statusLabel =
     resource.status === "LocalChanged"
-      ? "modified locally"
+      ? localize("Local Changes")
       : resource.status === "RemoteChanged"
-        ? "remote changed"
-        : "conflict";
+        ? localize("Kiwi Changes")
+        : localize("Conflicts");
 
   return {
     resourceUri: toVscodeUri(resource.localUri),
@@ -134,13 +135,13 @@ export function createKiwiLocalMirrorSourceControl(scmNamespace?: ScmNamespaceLi
   const sourceControl =
     resolvedScmNamespace?.createSourceControl(
       KIWI_LOCAL_MIRROR_SOURCE_CONTROL_ID,
-      KIWI_LOCAL_MIRROR_SOURCE_CONTROL_LABEL
+      localize("Kiwi Local Mirror Compare")
     ) ?? createNoopSourceControl();
   sourceControl.inputBox.visible = false;
 
-  const changesGroup = sourceControl.createResourceGroup("changes", "Local Changes");
-  const remoteChangedGroup = sourceControl.createResourceGroup("remoteChanged", "Remote Changes");
-  const conflictsGroup = sourceControl.createResourceGroup("conflicts", "Conflicts");
+  const changesGroup = sourceControl.createResourceGroup("changes", localize("Local Changes"));
+  const remoteChangedGroup = sourceControl.createResourceGroup("remoteChanged", localize("Kiwi Changes"));
+  const conflictsGroup = sourceControl.createResourceGroup("conflicts", localize("Conflicts"));
 
   const getResourcesForGroup = (groupId: LocalMirrorScmGroupId): LocalMirrorScmResource[] => {
     const resources = currentState?.resources ?? [];

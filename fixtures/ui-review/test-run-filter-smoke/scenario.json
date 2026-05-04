@@ -1,0 +1,29 @@
+{
+  "id": "test-run-filter-smoke",
+  "screen": "test-run-filter",
+  "description": "Open the test run filter Webview and render a Regression run result.",
+  "command": "kiwi.filterTestRuns",
+  "formState": {
+    "query": "Regression",
+    "planId": "100",
+    "build": "2026.04"
+  },
+  "expected": {
+    "hasResults": true,
+    "resultCount": 1,
+    "resultIds": [300],
+    "summaries": ["Regression run"],
+    "selectedCount": 0
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "query-input",
+    "plan-select",
+    "build-select",
+    "result-list",
+    "result-table",
+    "result-row-300",
+    "open-run-300"
+  ]
+}

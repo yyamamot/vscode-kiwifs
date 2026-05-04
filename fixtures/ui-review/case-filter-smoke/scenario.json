@@ -1,0 +1,29 @@
+{
+  "id": "case-filter",
+  "screen": "case-filter",
+  "description": "Open the case filter Webview and render Login search results.",
+  "command": "kiwi.filterCases",
+  "formState": {
+    "query": "Login",
+    "queryTarget": "id-summary",
+    "planId": "100",
+    "status": "",
+    "priority": "",
+    "tagsInput": ""
+  },
+  "expected": {
+    "hasResults": true,
+    "resultCount": 1,
+    "resultIds": [501],
+    "summaries": ["Login works"],
+    "selectedCount": 0
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "result-list",
+    "result-row-501",
+    "open-case-501",
+    "bulk-actions"
+  ]
+}

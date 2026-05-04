@@ -1,0 +1,39 @@
+{
+  "id": "case-filter-selected",
+  "screen": "case-filter",
+  "description": "Render case filter bulk action controls with multiple selected rows.",
+  "command": "kiwi.filterCases",
+  "formState": {
+    "query": "Bulk target",
+    "queryTarget": "id-summary",
+    "planId": "100",
+    "status": "",
+    "priority": "",
+    "tagsInput": ""
+  },
+  "interactions": [
+    { "type": "toggle-case-selection", "caseId": 511, "selected": true },
+    { "type": "toggle-case-selection", "caseId": 512, "selected": true }
+  ],
+  "expected": {
+    "hasResults": true,
+    "resultCount": 2,
+    "resultIds": [511, 512],
+    "summaries": ["Bulk target one", "Bulk target two"],
+    "selectedCount": 2
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "result-list",
+    "result-row-511",
+    "result-row-512",
+    "select-case-511",
+    "select-case-512",
+    "selection-summary",
+    "bulk-status-button",
+    "bulk-add-tags-button",
+    "bulk-remove-tags-button",
+    "bulk-actions"
+  ]
+}

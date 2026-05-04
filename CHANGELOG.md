@@ -1,35 +1,61 @@
 # Changelog
 
+[日本語](https://github.com/yyamamot/vscode-kiwifs/blob/main/CHANGELOG.ja.md) | English
+
+## 0.0.5 (2026-05-04)
+
+- Fixed cases where normally installed extensions could be detected as unexpectedly modified.
+- Removed passwords from internal temporary credential keys.
+- Standardized execution wording in the Test Case Actions Webview as test execution.
+- Added direct access to manage test case executions from the test case context menu.
+- Added Source Control View actions to prepare LLM Local Mirror Prompt and Diff inputs.
+- Clarified the allowed read and edit scope for LLM Local Mirror Prompt.
+- Added guidance for LLM Local Mirror Prompt to avoid creating or deleting files.
+- Made LLM Local Mirror Diff Context distinguish unchanged resources from diff generation failures.
+- Changed LLM Local Mirror Diff Context patches to include surrounding context.
+- Added `.gitignore` confirmation for `.kiwi-mirror/` and `.kiwi-agent/` when using LLM Assist Kit.
+- Expanded Japanese / English UI localization for command names, Webviews, Source Control View, and LLM prompt artifacts.
+- Added local-only Source Control View auto refresh for local mirror changes and metadata-only remote checks.
+- Cleaned up local mirror operation names and labels in Source Control View.
+- Reduced TreeView context menus to primary actions and moved secondary actions into detail action surfaces.
+- Always show target case information in the Test Case Actions Webview.
+- Moved compare / apply decision actions from the Test Case Actions Webview to Source Control View.
+- Added metadata display and an edit-basic-info action to the Test Case Actions Webview.
+- Cleaned up Kiwi Plans context menu labels as target-specific action names.
+- Always show plan information, descendant test case count, test run count, and local mirror summary in the Test Plan Actions Webview.
+- Added primary case management, test run, and local mirror actions to the Test Plan Actions Webview.
+- Split README into English and Japanese versions, and added a Japanese changelog.
+
 ## 0.0.4 (2026-04-19)
 
-- テスト計画の右クリックから、配下のローカルミラーを比較・反映できるようにした
-- ローカルミラーの compare snapshot を Source Control に表示し、`Compare Again` / `Upload Local Changes` / `Take Remote Changes` を使えるようにした
-- Explorer でも compare snapshot を優先表示し、`Local Changes` / `Remote Changes` / `Conflicts` が SCM と揃うようにした
-- remote だけ更新されたケースを `Remote Changes` と正しく判定するようにし、旧 manifest でも可能な範囲で比較を継続できるようにした
-- SCM から `Remote Changes` を開いたときに空との差分にならないようにし、その時点の remote 最新本文と local mirror の差分を開くようにした
-- SCM の操作導線を右クリック中心へ寄せ、専用 command は command palette から隠した
+- Added plan context actions to compare and apply descendant local mirrors.
+- Added Source Control resources for local mirror compare snapshots with `Compare Again`, `Upload Local Changes`, and `Take Remote Changes`.
+- Prioritized compare snapshots in Explorer and aligned `Local Changes`, `Remote Changes`, and `Conflicts` with Source Control.
+- Correctly detect remote-only case updates as `Remote Changes`, and keep comparison working where possible with older manifests.
+- Open current remote latest versus local mirror diffs from `Remote Changes` instead of showing an empty diff.
+- Moved SCM operation flow toward context menus and hid dedicated commands from the Command Palette.
 
 ## 0.0.3 (2026-04-16)
 
-- 新規テストケース作成時に、Kiwi TCMS の Template を選んで本文のひな形として使えるようにした
-- テストケースを本文全文で探せるようにし、検索結果は 50 件ずつ追加表示できるようにした
-- 変更履歴を見やすくし、履歴ごとの差分を追いやすくした
-- 開いているテストケースが最新ではない場合に気づきやすくした
-- テストケース一覧から複数ケースを選んで、status や tags をまとめて更新できるようにした
-- 右クリックから、テストケースを計画から外す操作と削除操作を続けて選びやすくした
-- Test Run を専用画面から探して開けるようにした
-- コマンド名を日本語に寄せ、`テストケースを探す` / `テスト実行を探す` など操作名を揃えた
-- 右クリックメニューの文言を短くし、テスト計画 / テストケース表現を揃えた
+- Added Kiwi TCMS Template selection when creating new test cases.
+- Added full body text search for test cases, with paged results in batches of 50.
+- Improved history readability and history diff workflows.
+- Made it easier to notice when an opened test case is no longer latest.
+- Added bulk status and tag updates from the test case list.
+- Grouped remove-from-plan and delete actions in the context menu.
+- Added a dedicated screen to find and open Test Runs.
+- Moved command names toward Japanese labels and aligned names such as `Find Test Cases` and `Find Test Runs`.
+- Shortened context menu wording and aligned test plan / test case labels.
 
 ## 0.0.2 (2026-04-14)
 
-- case 起点の複数 Test Run 管理で、既存の全計画検索と plan selector を維持したまま初回表示を軽量化
-- case ノード右クリックから、選択した履歴本文と最新本文の差分表示をサポート
+- Made the case-focused multi-Test Run management initial view lighter while preserving existing all-plan search and plan selector behavior.
+- Added support for showing diffs between a selected history body and the latest body from the case context menu.
 
 ## 0.0.1 (2026-04-12)
 
-- 初期リリース
-- `Kiwi Plans` view による plan / case 探索を追加
-- `kiwi:` document としての case open / save を追加
-- case metadata 編集、case 作成/複製、plan への追加/解除を追加
-- local mirror の download / compare / upload を追加
+- Initial release.
+- Added the `Kiwi Plans` view for browsing plans and cases.
+- Added case open / save through `kiwi:` documents.
+- Added case metadata editing, case creation / duplication, and plan add / remove operations.
+- Added local mirror download / compare / upload.

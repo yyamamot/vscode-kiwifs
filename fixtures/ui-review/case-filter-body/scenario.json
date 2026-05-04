@@ -1,0 +1,30 @@
+{
+  "id": "case-filter-body",
+  "screen": "case-filter",
+  "description": "Render body-search case filter results with text snippet column populated.",
+  "command": "kiwi.filterCases",
+  "formState": {
+    "query": "reset text",
+    "queryTarget": "body",
+    "planId": "",
+    "status": "",
+    "priority": "",
+    "tagsInput": ""
+  },
+  "expected": {
+    "hasResults": true,
+    "resultCount": 1,
+    "resultIds": [502],
+    "summaries": ["Password reset works"],
+    "selectedCount": 0
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "query-target-select",
+    "result-list",
+    "result-row-502",
+    "open-case-502",
+    "bulk-actions"
+  ]
+}

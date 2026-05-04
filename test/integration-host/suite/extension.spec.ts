@@ -1,6 +1,8 @@
 import * as assert from "node:assert/strict";
+import * as os from "node:os";
 import * as path from "node:path";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import * as vscode from "vscode";
 import { createKiwiHarness, KiwiHarness } from "../../harness/createKiwiHarness";
 import type { KiwiPlansTreeSnapshotNode } from "../../../src/extension/KiwiPlansTreeDataProvider";
@@ -266,9 +268,9 @@ describe("extension host", () => {
 
     try {
       const title = await vscode.commands.executeCommand<string>("kiwi.__test.filterCases");
-      assert.equal(title, "テストケースを探す");
+      assert.match(title, /^(テストケースを探す|Find Test Cases)$/);
       const html = await vscode.commands.executeCommand<string>("kiwi.__test.getCaseFilterHtml");
-      assert.match(html ?? "", /<h1>テストケースを探す<\/h1>/);
+      assert.match(html ?? "", /<h1>(テストケースを探す|Find Test Cases)<\/h1>/);
 
       const initialState = await vscode.commands.executeCommand<{
         formState: { query: string; queryTarget: string; planId: string; status: string; priority: string; tagsInput: string };
@@ -694,34 +696,38 @@ describe("extension host", () => {
     );
 
     assert.equal(
-      commands.find((item) => item.command === "kiwi.showPlanInfo")?.title,
+      commandTitleJa(commands, "kiwi.showPlanInfo"),
       "テスト計画の情報を表示"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.openPlanInBrowser")?.title,
-      "テスト計画をブラウザで表示"
+      commandTitleJa(commands, "kiwi.openPlanInBrowser"),
+      "ブラウザで表示"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.createCase")?.title,
-      "テスト計画に新規テストケースを作成"
+      commandTitleJa(commands, "kiwi.createCase"),
+      "ここに作成"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.addExistingCaseToPlan")?.title,
-      "テスト計画に既存テストケースを追加"
+      commandTitleJa(commands, "kiwi.addExistingCaseToPlan"),
+      "既存テストケースを追加"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.removeCaseFromPlanFromPlan")?.title,
+      commandTitleJa(commands, "kiwi.removeCaseFromPlanFromPlan"),
       "テスト計画からテストケースを外す"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.comparePlanLocalMirror")?.title,
-      "ローカルミラーを比較"
+      commandTitleJa(commands, "kiwi.comparePlanLocalMirror"),
+      "配下テストケースの差分を確認"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.uploadPlanLocalMirror")?.title,
+      commandTitleJa(commands, "kiwi.uploadPlanLocalMirror"),
       "ローカルミラーを反映"
     );
-    assert.notEqual(
+    assert.equal(
+      commandTitleJa(commands, "kiwi.showPlanTreeItemActions"),
+      "テスト計画の操作を開く"
+    );
+    assert.equal(
       planMenus.findIndex((item) => item.command === "kiwi.removeCaseFromPlanFromPlan"),
       -1
     );
@@ -729,19 +735,133 @@ describe("extension host", () => {
       planMenus.findIndex((item) => item.command === "kiwi.comparePlanLocalMirror"),
       -1
     );
-    assert.notEqual(
+    assert.equal(
+      planMenus.findIndex((item) => item.command === "kiwi.showPlanLocalMirrorStatus"),
+      -1
+    );
+    assert.equal(
       planMenus.findIndex((item) => item.command === "kiwi.uploadPlanLocalMirror"),
       -1
     );
+    assert.equal(
+      planMenus.findIndex((item) => item.command === "kiwi.showPlanTreeItemActions"),
+      1
+    );
     const planMirrorCommands = planMenus
-      .filter((item) => item.group?.startsWith("mirror@"))
+      .filter((item) => item.group?.startsWith("04_localMirror@"))
       .map((item) => item.command);
     assert.deepEqual(planMirrorCommands, [
       "kiwi.downloadPlanToLocalMirror",
-      "kiwi.comparePlanLocalMirror",
-      "kiwi.uploadPlanLocalMirror",
-      "kiwi.showPlanLocalMirrorStatus"
+      "kiwi.comparePlanLocalMirror"
     ]);
+  });
+
+  it("contributes reduced TreeView context menus and action surfaces", async function () {
+    this.timeout(20000);
+    const extension = getKiwifsExtension();
+    assert.ok(extension);
+    const menus = extension.packageJSON.contributes?.menus ?? {};
+    const viewItemContext = (menus["view/item/context"] ?? []) as Array<{
+      command: string;
+      when?: string;
+      group?: string;
+    }>;
+    const commandPalette = (menus.commandPalette ?? []) as Array<{ command: string; when?: string }>;
+    const caseMenus = viewItemContext.filter(
+      (item) => item.when === "view == kiwiPlans && viewItem == caseDocument"
+    );
+
+    assert.deepEqual(caseMenus.map((item) => item.command), [
+      "kiwi.openInBrowser",
+      "kiwi.refreshCaseDocument",
+      "kiwi.editCaseMetadata",
+      "kiwi.manageCaseExecutionsAcrossRuns",
+      "kiwi.showCaseTreeItemActions",
+      "kiwi.downloadCaseToLocalMirror",
+      "kiwi.compareLocalMirror",
+      "kiwi.removeCaseFromPlan",
+      "kiwi.deleteCase"
+    ]);
+    const commands = extension.packageJSON.contributes?.commands ?? [];
+    assert.equal(commandTitleJa(commands, "kiwi.editCaseMetadata"), "基本情報を編集");
+    assert.equal(commandTitleJa(commands, "kiwi.manageCaseExecutionsAcrossRuns"), "テストケースの実行を管理");
+    assert.equal(commandTitleJa(commands, "kiwi.showCaseTreeItemActions"), "テストケースの操作を開く");
+    assert.equal(commandTitleJa(commands, "kiwi.downloadCaseToLocalMirror"), "このテストケースをローカルに同期");
+    assert.equal(commandTitleJa(commands, "kiwi.compareLocalMirror"), "このテストケースの差分を確認");
+    assert.equal(commandTitleJa(commands, "kiwi.removeCaseFromPlan"), "この計画から外す");
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.uploadLocalMirror")?.when, "false");
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.uploadPlanLocalMirror")?.when, "false");
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.showTreeItemActions")?.when, "false");
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.showPlanTreeItemActions")?.when, "false");
+    assert.equal(commandPalette.find((item) => item.command === "kiwi.showCaseTreeItemActions")?.when, "false");
+    assert.equal(caseMenus.some((item) => item.command === "kiwi.installLlmSkillPack"), false);
+    assert.equal(caseMenus.some((item) => item.command === "kiwi.startLlmEditSession"), false);
+    assert.equal(caseMenus.some((item) => item.command === "kiwi.copyLlmPromptForCurrentSession"), false);
+
+    const planSurface = await vscode.commands.executeCommand<{
+      overview?: { rows: Array<{ label: string; value: string }> };
+      items: Array<{ command: string; label: string; category: string }>;
+    }>("kiwi.__test.getTreeItemActionSurfaceState", {
+      kind: "plan",
+      plan: { id: 100, name: "Regression" }
+    });
+    assert.deepEqual(planSurface?.overview?.rows, [
+      { label: "Test Plan ID", value: "100" },
+      { label: "Name", value: "Regression" },
+      { label: "Description", value: "-" },
+      { label: "Child Test Cases", value: "3" },
+      { label: "Test Runs", value: "1" },
+      { label: "Local Mirror", value: "Not Compared" }
+    ]);
+    assert.deepEqual(planSurface?.items.map((item) => item.command), [
+      "kiwi.openPlanInBrowser",
+      "kiwi.createCase",
+      "kiwi.addExistingCaseToPlan",
+      "kiwi.filterCases",
+      "kiwi.openTestRunDashboard",
+      "kiwi.filterTestRuns",
+      "kiwi.downloadPlanToLocalMirror",
+      "kiwi.comparePlanLocalMirror",
+      "kiwi.removeCaseFromPlanFromPlan"
+    ]);
+    assert.equal(planSurface?.items.find((item) => item.command === "kiwi.createCase")?.category, "cases");
+    assert.equal(planSurface?.items.find((item) => item.command === "kiwi.openTestRunDashboard")?.category, "execution");
+    assert.equal(planSurface?.items.some((item) => item.command === "kiwi.showPlanInfo"), false);
+
+    const caseSurface = await vscode.commands.executeCommand<{
+      overview?: { rows: Array<{ label: string; value: string }> };
+      items: Array<{ command: string; label: string; category: string }>;
+    }>("kiwi.__test.getTreeItemActionSurfaceState", {
+      kind: "case",
+      plan: { id: 100, name: "Regression" },
+      caseRef: { id: 501, summary: "Login works" }
+    });
+    assert.deepEqual(caseSurface?.overview?.rows, [
+      { label: "Test Case ID", value: "501" },
+      { label: "Overview", value: "Login works" },
+      { label: "Test Plan", value: "100 - Regression" },
+      { label: "Status", value: "CONFIRMED" },
+      { label: "Priority", value: "P1" },
+      { label: "Category", value: "Functional" },
+      { label: "Tags", value: "smoke" }
+    ]);
+    assert.equal(caseSurface?.items.some((item) => item.command === "kiwi.showCaseInfo"), false);
+    assert.equal(caseSurface?.items.some((item) => item.command === "kiwi.checkCaseFreshness"), false);
+    assert.equal(caseSurface?.items.some((item) => item.command === "kiwi.showCaseDiff"), false);
+    assert.equal(caseSurface?.items.some((item) => item.command === "kiwi.compareLocalMirror"), false);
+    assert.equal(caseSurface?.items.find((item) => item.command === "kiwi.editCaseMetadata")?.category, "edit");
+    assert.equal(caseSurface?.items.find((item) => item.command === "kiwi.duplicateCase")?.category, "create");
+    assert.deepEqual(
+      pickActionSurfaceItem(caseSurface?.items, "kiwi.recordCaseExecutionResult"),
+      { command: "kiwi.recordCaseExecutionResult", label: "Update Test Execution Result", category: "execution" }
+    );
+    assert.deepEqual(
+      pickActionSurfaceItem(caseSurface?.items, "kiwi.manageCaseExecutionsAcrossRuns"),
+      { command: "kiwi.manageCaseExecutionsAcrossRuns", label: "Manage Test Executions", category: "execution" }
+    );
+    assert.ok(caseSurface?.items.some((item) => item.command === "kiwi.openCaseAttachmentInEditor"));
+    assert.ok(caseSurface?.items.some((item) => item.command === "kiwi.manageCaseExecutionsAcrossRuns"));
+    assert.equal(caseSurface?.items.some((item) => item.command === "kiwi.uploadLocalMirror"), false);
   });
 
   it("configures base url username and password through dedicated commands", async function () {
@@ -871,8 +991,8 @@ describe("extension host", () => {
       title: string;
       icon?: string;
     }>;
-    assert.equal(commands.find((item) => item.command === "kiwi.filterCases")?.title, "Kiwi: テストケースを探す");
-    assert.equal(commands.find((item) => item.command === "kiwi.filterTestRuns")?.title, "Kiwi: テスト実行を探す");
+    assert.equal(commandTitleJa(commands, "kiwi.filterCases"), "Kiwi: テストケースを探す");
+    assert.equal(commandTitleJa(commands, "kiwi.filterTestRuns"), "Kiwi: テスト実行を探す");
     assert.equal(commands.find((item) => item.command === "kiwi.filterCases")?.icon, "$(search)");
     assert.equal(commands.find((item) => item.command === "kiwi.filterTestRuns")?.icon, "$(search)");
 
@@ -914,16 +1034,20 @@ describe("extension host", () => {
     }>;
 
     assert.equal(
-      commands.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.title,
-      "Compare Again"
+      commandTitleJa(commands, "kiwi.scmCompareLocalMirrorAgain"),
+      "再比較"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.title,
-      "Upload Local Changes"
+      commandTitleJa(commands, "kiwi.scmCheckRemoteLocalMirrorMetadata"),
+      "Kiwi側の更新を確認"
     );
     assert.equal(
-      commands.find((item) => item.command === "kiwi.scmTakeRemoteLocalMirrorResources")?.title,
-      "Take Remote Changes"
+      commandTitleJa(commands, "kiwi.scmUploadLocalMirrorResources"),
+      "Kiwiに反映"
+    );
+    assert.equal(
+      commandTitleJa(commands, "kiwi.scmTakeRemoteLocalMirrorResources"),
+      "ローカルに取り込む"
     );
     assert.equal(
       repositoryMenus.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.when,
@@ -932,6 +1056,38 @@ describe("extension host", () => {
     assert.equal(
       repositoryMenus.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.group,
       "inline@1"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmCheckRemoteLocalMirrorMetadata")?.when,
+      "scmProvider == kiwi-local-mirror-compare"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmCheckRemoteLocalMirrorMetadata")?.group,
+      "inline@2"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.group,
+      "inline@3"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.scmTakeRemoteLocalMirrorResources")?.group,
+      "inline@4"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.startLlmEditSession")?.when,
+      "scmProvider == kiwi-local-mirror-compare"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.startLlmEditSession")?.group,
+      "inline@5"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.createLlmLocalMirrorDiffContext")?.when,
+      "scmProvider == kiwi-local-mirror-compare"
+    );
+    assert.equal(
+      repositoryMenus.find((item) => item.command === "kiwi.createLlmLocalMirrorDiffContext")?.group,
+      "inline@6"
     );
     assert.equal(
       groupMenus.find((item) => item.command === "kiwi.scmUploadLocalMirrorResources")?.when,
@@ -951,6 +1107,10 @@ describe("extension host", () => {
     );
     assert.equal(
       commandPalette.find((item) => item.command === "kiwi.scmCompareLocalMirrorAgain")?.when,
+      "false"
+    );
+    assert.equal(
+      commandPalette.find((item) => item.command === "kiwi.scmCheckRemoteLocalMirrorMetadata")?.when,
       "false"
     );
   });
@@ -975,12 +1135,12 @@ describe("extension host", () => {
     }>;
 
     assert.equal(
-      commands.find((item) => item.command === "kiwi.checkCaseFreshness")?.title,
+      commandTitleJa(commands, "kiwi.checkCaseFreshness"),
       "テストケースの最新状態を確認"
     );
     assert.equal(
       viewItemContext.find((item) => item.command === "kiwi.checkCaseFreshness")?.when,
-      "view == kiwiPlans && viewItem == caseDocument"
+      undefined
     );
     assert.equal(
       editorTitle.find((item) => item.command === "kiwi.checkCaseFreshness")?.when,
@@ -1163,7 +1323,7 @@ describe("extension host", () => {
   it("creates a new case from the plan metadata editor flow", async function () {
     this.timeout(20000);
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.createCase");
-    assert.equal(title, "テスト計画に新規テストケースを作成: Regression");
+    assert.equal(title, "Create New Test Case in Test Plan: Regression");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
@@ -1175,7 +1335,7 @@ describe("extension host", () => {
     }>("kiwi.__test.getMetadataEditorState", 100, "create");
     assert.equal(initialState?.formState.summary, "");
     assert.equal(initialState?.mode, "create");
-    assert.equal(initialState?.actionLabel, "作成");
+    assert.equal(initialState?.actionLabel, "Create");
     assert.ok(initialState?.options.statuses.includes("CONFIRMED"));
     assert.ok(initialState?.options.priorities.includes("P1"));
     assert.equal(initialState?.templateOptions[0]?.name, "既定テンプレート");
@@ -1223,7 +1383,7 @@ describe("extension host", () => {
     assert.ok(sourceText);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.duplicateCase");
-    assert.equal(title, "テストケースを複製: Login works");
+    assert.equal(title, "Duplicate Test Case: Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
@@ -1233,7 +1393,7 @@ describe("extension host", () => {
     }>("kiwi.__test.getMetadataEditorState", 501, "duplicate");
     assert.equal(initialState?.formState.summary, "Login works");
     assert.equal(initialState?.mode, "duplicate");
-    assert.equal(initialState?.actionLabel, "複製して作成");
+    assert.equal(initialState?.actionLabel, "Duplicate and Create");
     assert.equal(initialState?.templateOptions.length, 0);
 
     const saveResult = await vscode.commands.executeCommand<{
@@ -1281,7 +1441,7 @@ describe("extension host", () => {
       "kiwi.__test.recordCaseExecutionResult",
       9001
     );
-    assert.equal(title, "テストケースの実行結果を更新: 501 - Login works");
+    assert.equal(title, "Update Test Case Execution Result: 501 - Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { status: string; comment: string };
@@ -1313,7 +1473,7 @@ describe("extension host", () => {
     this.timeout(20000);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.openTestRunDashboard");
-    assert.equal(title, "テスト実行ダッシュボード");
+    assert.equal(title, "Test Run Dashboard");
 
     const initialState = await vscode.commands.executeCommand<{
       testRuns: Array<{ id: number; summary: string }>;
@@ -1324,7 +1484,7 @@ describe("extension host", () => {
     assert.equal(initialState?.selectedRunId, "");
     assert.ok((initialState?.testRuns.length ?? 0) >= 2);
     assert.equal(initialState?.rows.length, 0);
-    assert.match(initialState?.message ?? "", /既存の Test Run を開いてください|Test Run を作成してください/);
+    assert.match(initialState?.message ?? "", /Create a Test Run or open an existing Test Run\./);
 
     const switched = await vscode.commands.executeCommand<{
       selectedRunId: string;
@@ -1380,7 +1540,7 @@ describe("extension host", () => {
     };
 
     const caseTitle = await vscode.commands.executeCommand<string>("kiwi.openTestRunDashboard", caseTarget);
-    assert.equal(caseTitle, "テスト実行ダッシュボード");
+    assert.equal(caseTitle, "Test Run Dashboard");
     const caseState = await vscode.commands.executeCommand<{
       selectedRunId: string;
       rows: Array<{ executionId: number }>;
@@ -1389,7 +1549,7 @@ describe("extension host", () => {
     assert.doesNotMatch(caseState?.selectedRunId ?? "", /^\[object Object\]$/);
 
     const planTitle = await vscode.commands.executeCommand<string>("kiwi.openTestRunDashboard", planTarget);
-    assert.equal(planTitle, "テスト実行ダッシュボード");
+    assert.equal(planTitle, "Test Run Dashboard");
     const planState = await vscode.commands.executeCommand<{
       selectedRunId: string;
       rows: Array<{ executionId: number }>;
@@ -1420,12 +1580,12 @@ describe("extension host", () => {
     this.timeout(20000);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.filterTestRuns");
-    assert.equal(title, "テスト実行を探す");
+    assert.equal(title, "Find Test Runs");
 
     const html = await vscode.commands.executeCommand<string>("kiwi.__test.getTestRunFilterHtml");
-    assert.match(html ?? "", /<h1>テスト実行を探す<\/h1>/);
-    assert.match(html ?? "", /<form id="form">/);
-    assert.match(html ?? "", /type="submit">検索<\/button>/);
+    assert.match(html ?? "", /<h1>Find Test Runs<\/h1>/);
+    assert.match(html ?? "", /<form id="form"[^>]*>/);
+    assert.match(html ?? "", /type="submit">Search<\/button>/);
 
     const initialState = await vscode.commands.executeCommand<{
       formState: { query: string; planId: string; build: string };
@@ -1595,7 +1755,7 @@ describe("extension host", () => {
       100,
       "Regression"
     );
-    assert.equal(title, "テストケースの実行を管理: 501 - Login works");
+    assert.equal(title, "Manage Test Case Executions: 501 - Login works");
 
     const initialState = await vscode.commands.executeCommand<{
       plans: Array<{ id: number; name: string }>;
@@ -1712,7 +1872,7 @@ describe("extension host", () => {
     await vscode.window.showTextDocument(oldBodyDocument);
 
     const title = await vscode.commands.executeCommand<string>("kiwi.__test.editCaseMetadata");
-    assert.equal(title, "テストケースのメタデータを編集: Login works");
+    assert.equal(title, "Edit Test Case Basic Information: Login works");
     const initialState = await vscode.commands.executeCommand<{
       formState: { summary: string; status: string; priority: string; tagsInput: string };
       options: { statuses: string[]; priorities: string[] };
@@ -1746,7 +1906,7 @@ describe("extension host", () => {
       title: string;
     }>("kiwi.__test.getMetadataEditorState");
     assert.equal(updatedState?.formState.summary, "Login updated");
-    assert.equal(updatedState?.title, "テストケースのメタデータを編集: Login updated");
+    assert.equal(updatedState?.title, "Edit Test Case Basic Information: Login updated");
 
     const newBodyUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login updated.md");
     await waitForTabState(newBodyUri.toString(), true);
@@ -1901,7 +2061,7 @@ describe("extension host", () => {
 
   it("opens case diff from a tree target", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
     const baselineUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const baselineDocument = await vscode.workspace.openTextDocument(baselineUri);
     assert.doesNotMatch(baselineDocument.getText(), /Changed on remote side\./);
@@ -1928,7 +2088,7 @@ describe("extension host", () => {
 
   it("opens case history diff from a tree target", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
 
     const diffResult = await vscode.commands.executeCommand<{
       historyUri: string;
@@ -1948,7 +2108,7 @@ describe("extension host", () => {
 
   it("opens a read-only case history list from a tree target", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
 
     const uriString = await vscode.commands.executeCommand<string>("kiwi.__test.showCaseHistory");
 
@@ -1997,7 +2157,7 @@ describe("extension host", () => {
     assert.match(document.getText(), /## Text/);
   });
 
-  it("downloads plan-local mirrors in bulk and shows plan status report", async function () {
+  it("downloads plan-local mirrors in bulk", async function () {
     this.timeout(20000);
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     assert.ok(workspaceRoot);
@@ -2062,17 +2222,6 @@ describe("extension host", () => {
       failed: 0
     });
     assert.match(await readFile(loginMirror, "utf8"), /Login succeeds\./);
-
-    const reportUri = await vscode.commands.executeCommand<string>(
-      "kiwi.__test.showPlanLocalMirrorStatus"
-    );
-    assert.ok(reportUri);
-    assert.match(reportUri ?? "", /^kiwi-plan-local-mirror:/);
-    const reportDocument = await vscode.workspace.openTextDocument(vscode.Uri.parse(reportUri!));
-    assert.equal(reportDocument.isDirty, false);
-    assert.match(reportDocument.getText(), /# Local Mirror Status: Regression/);
-    assert.match(reportDocument.getText(), /\| 501 \| Login works \| unchanged \|/);
-    assert.match(reportDocument.getText(), /\| 502 \| Password reset works \| unchanged \|/);
 
     const scmState = await vscode.commands.executeCommand("kiwi.__test.getLocalMirrorScmState");
     assert.equal(scmState, undefined);
@@ -2144,6 +2293,60 @@ describe("extension host", () => {
     assert.equal(revealPath, redownloaded!.localPath);
   });
 
+  it("auto-reflects local mirror file edits into SCM without compare", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    const downloaded = await vscode.commands.executeCommand<{ localPath: string }>(
+      "kiwi.__test.downloadLocalMirror"
+    );
+    assert.ok(downloaded?.localPath);
+    await writeFile(
+      downloaded.localPath,
+      `${await readFile(downloaded.localPath, "utf8")}\n\nAuto reflected local edit.\n`,
+      "utf8"
+    );
+
+    const resource = await waitForLocalMirrorScmResource(501, "LocalChanged", 30);
+    assert.equal(resource.caseRef.summary, "Login works");
+    await waitForTreeCaseDescription("501 - Login works.md", "Local Changes", 30);
+
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+  });
+
+  it("checks remote metadata for local mirror SCM resources without opening a diff", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+
+    const downloaded = await vscode.commands.executeCommand<{ localPath: string }>(
+      "kiwi.__test.downloadLocalMirror"
+    );
+    assert.ok(downloaded?.localPath);
+    await writeFile(
+      downloaded.localPath,
+      `${await readFile(downloaded.localPath, "utf8")}\n\nMetadata conflict local edit.\n`,
+      "utf8"
+    );
+    await waitForLocalMirrorScmResource(501, "LocalChanged", 30);
+    await harness.simulateRemoteChange(501, (current) => ({
+      ...current,
+      text: `${current.text}\nMetadata conflict remote edit.`
+    }));
+
+    const result = await vscode.commands.executeCommand<{ changed: boolean }>(
+      "kiwi.__test.scmCheckRemoteLocalMirrorMetadata"
+    );
+    assert.equal(result?.changed, true);
+    await waitForLocalMirrorScmResource(501, "Conflict", 30);
+    await waitForTreeCaseDescription("501 - Login works.md", "Conflicts", 30);
+
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+  });
+
   it("compares plan-local mirrors and rebuilds SCM snapshot on compare again", async function () {
     this.timeout(20000);
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -2200,7 +2403,7 @@ describe("extension host", () => {
     );
     assert.equal(
       compareTreeCases.find((node) => node.label === "502 - Password reset works.md")?.description,
-      "Remote Changes"
+      "Kiwi Changes"
     );
     const planState = await vscode.commands.executeCommand<{
       target: { kind: string; plan: { id: number } };
@@ -2329,7 +2532,7 @@ describe("extension host", () => {
       resources: Array<{ status: string; plan: { id: number; name: string }; caseRef: { id: number; summary: string } }>;
     }>("kiwi.__test.getLocalMirrorScmState");
     assert.equal(beforeTake?.resources[0]?.status, "RemoteChanged");
-    await waitForTreeCaseDescription("501 - Login works.md", "Remote Changes");
+    await waitForTreeCaseDescription("501 - Login works.md", "Kiwi Changes");
     const scmDiff = await vscode.commands.executeCommand<{
       remoteUri: string;
       localPath: string;
@@ -2358,6 +2561,237 @@ describe("extension host", () => {
       resources: Array<{ status: string }>;
     }>("kiwi.__test.getLocalMirrorScmState");
     assert.deepEqual(afterTake?.resources ?? [], []);
+  });
+
+  it("creates LLM Skill Pack and current prompt without adding TreeView context commands", async function () {
+    this.timeout(20000);
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    assert.ok(workspaceRoot);
+    const agentWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-agent-workspace-"));
+    await rm(path.join(workspaceRoot!, ".kiwi-mirror"), { recursive: true, force: true });
+    await writeFile(path.join(agentWorkspaceRoot, "AGENTS.md"), "# Existing AGENTS\n", "utf8");
+
+    const installResult = await vscode.commands.executeCommand<{
+      files: string[];
+    }>("kiwi.installLlmSkillPack", agentWorkspaceRoot, { updateGitignore: true });
+    assert.deepEqual(installResult?.files, [
+      ".agents/skills/kiwi-local-mirror-prompt/SKILL.md",
+      ".agents/skills/kiwi-local-mirror-prompt/agents/openai.yaml",
+      ".agents/skills/kiwi-local-mirror-prompt/agents/generic.md",
+      ".agents/skills/kiwi-local-mirror-diff/SKILL.md",
+      ".agents/skills/kiwi-local-mirror-diff/agents/openai.yaml",
+      ".agents/skills/kiwi-local-mirror-diff/agents/generic.md"
+    ]);
+    assert.equal(await readFile(path.join(agentWorkspaceRoot, "AGENTS.md"), "utf8"), "# Existing AGENTS\n");
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-prompt", "SKILL.md"), "utf8"),
+      /^name: kiwi-local-mirror-prompt$/m
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-prompt", "agents", "openai.yaml"), "utf8"),
+      /default_prompt: "Use \$kiwi-local-mirror-prompt/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-prompt", "agents", "openai.yaml"), "utf8"),
+      /allow_implicit_invocation: false/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-prompt", "agents", "generic.md"), "utf8"),
+      /LLMs that do not support `\$kiwi-local-mirror-prompt` skill syntax/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-diff", "SKILL.md"), "utf8"),
+      /^name: kiwi-local-mirror-diff$/m
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-diff", "agents", "generic.md"), "utf8"),
+      /LLMs that do not support `\$kiwi-local-mirror-diff` skill syntax/
+    );
+    const updatedGitignore = await readFile(path.join(agentWorkspaceRoot, ".gitignore"), "utf8");
+    assert.match(updatedGitignore, /^\.kiwi-mirror\/$/m);
+    assert.match(updatedGitignore, /^\.kiwi-agent\/$/m);
+    assert.doesNotMatch(updatedGitignore, /^\.agents\/kiwi\/$/m);
+    assert.doesNotMatch(updatedGitignore, /^\.agents\/skills\/kiwi-local-mirror-prompt\/$/m);
+    await assert.rejects(
+      readFile(path.join(agentWorkspaceRoot, ".agents", "kiwi", "SKILL.md"), "utf8"),
+      /ENOENT/
+    );
+    await assert.rejects(
+      readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-editing", "SKILL.md"), "utf8"),
+      /ENOENT/
+    );
+    await assert.rejects(
+      readFile(path.join(agentWorkspaceRoot, ".agents", "skills", "kiwi-local-mirror-prompt", "safety.md"), "utf8"),
+      /ENOENT/
+    );
+
+    const emptySession = await vscode.commands.executeCommand<{
+      editableFiles: string[];
+      promptPath: string;
+    }>("kiwi.startLlmEditSession", agentWorkspaceRoot, {
+      updateGitignore: true,
+      taskText: "Use this prompt for local mirror integration."
+    });
+    assert.deepEqual(emptySession?.editableFiles, []);
+    assert.equal(
+      emptySession?.promptPath,
+      path.join(".kiwi-agent", "prompt", "current", "prompt.md")
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "prompt", "current", "prompt.md"), "utf8"),
+      /\.agents\/skills\/kiwi-local-mirror-prompt\/SKILL\.md/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "prompt", "current", "task.md"), "utf8"),
+      /Use this prompt for local mirror integration/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "prompt", "current", "prompt.md"), "utf8"),
+      /sync cases to local mirror first/
+    );
+
+    const downloaded = await vscode.commands.executeCommand<{ localPath: string }>(
+      "kiwi.__test.downloadLocalMirror"
+    );
+    assert.ok(downloaded?.localPath);
+    const manifestPath = path.join(workspaceRoot!, ".kiwi-mirror", "kiwi-mirror.json");
+    const manifestText = await readFile(manifestPath, "utf8");
+    await mkdir(path.join(agentWorkspaceRoot, ".kiwi-mirror"), { recursive: true });
+    await writeFile(
+      path.join(agentWorkspaceRoot, ".kiwi-mirror", "kiwi-mirror.json"),
+      manifestText,
+      "utf8"
+    );
+    const agentManifest = JSON.parse(manifestText) as { cases: Record<string, { localPath: string }> };
+    const agentLocalPath = path.join(agentWorkspaceRoot, agentManifest.cases["501"]!.localPath);
+    await mkdir(path.dirname(agentLocalPath), { recursive: true });
+    await writeFile(agentLocalPath, await readFile(downloaded!.localPath, "utf8"), "utf8");
+    const session = await vscode.commands.executeCommand<{
+      editableFiles: string[];
+    }>("kiwi.startLlmEditSession", agentWorkspaceRoot, { updateGitignore: true });
+    assert.deepEqual(session?.editableFiles, [
+      ".kiwi-mirror/plans/100 - Regression/cases/501 - Login works.md"
+    ]);
+    const doNotEdit = await readFile(
+      path.join(agentWorkspaceRoot, ".kiwi-agent", "prompt", "current", "do-not-edit.txt"),
+      "utf8"
+    );
+    assert.match(doNotEdit, /\.kiwi-mirror\/kiwi-mirror\.json/);
+    assert.match(doNotEdit, /\.agents\/skills\/kiwi-local-mirror-prompt\/\*\*/);
+    assert.match(doNotEdit, /\.kiwi-agent\/\*\* \(prompt input files may be read only; do not edit any \.kiwi-agent file\)/);
+
+    await writeFile(
+      downloaded!.localPath,
+      `${await readFile(downloaded!.localPath, "utf8")}\n\nDiff context local change.\n`,
+      "utf8"
+    );
+    await vscode.commands.executeCommand("kiwi.__test.compareLocalMirror");
+    const diffContext = await vscode.commands.executeCommand<{
+      files: string[];
+      resourceCount: number;
+      promptPath: string;
+    }>("kiwi.createLlmLocalMirrorDiffContext", agentWorkspaceRoot);
+    assert.equal(diffContext?.resourceCount, 1);
+    assert.equal(
+      diffContext?.promptPath,
+      path.join(".kiwi-agent", "diff", "current", "prompt.md")
+    );
+    assert.ok(diffContext?.files.includes(path.join(".kiwi-agent", "diff", "current", "scm-state.json")));
+    assert.ok(diffContext?.files.some((file) => file.endsWith(path.join("diffs", "100-501.patch"))));
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "diff", "current", "scm-state.json"), "utf8"),
+      /"caseId": 501/
+    );
+    assert.match(
+      await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "diff", "current", "diffs", "100-501.patch"), "utf8"),
+      /--- remote\/501\.md\n\+\+\+ .*501.*\.md/
+    );
+    const diffPrompt = await readFile(path.join(agentWorkspaceRoot, ".kiwi-agent", "diff", "current", "prompt.md"), "utf8");
+    assert.match(diffPrompt, /^\$kiwi-local-mirror-diff/);
+    assert.match(diffPrompt, /\.agents\/skills\/kiwi-local-mirror-diff\/SKILL\.md/);
+    assert.match(diffPrompt, /Do not call Kiwi APIs, SCM commands/);
+    assert.match(diffPrompt, /Take Remote command/);
+    assert.match(diffPrompt, /current UI command labels `.+` and `.+`/);
+
+    const extension = getKiwifsExtension();
+    const commands = (extension?.packageJSON.contributes?.commands ?? []) as Array<{ command: string; title?: string }>;
+    assert.equal(
+      commandTitleJa(commands, "kiwi.installLlmSkillPack"),
+      "Kiwi: LLM Local Mirror Skills をインストール"
+    );
+    assert.equal(
+      commandTitleJa(commands, "kiwi.startLlmEditSession"),
+      "Kiwi: LLM Local Mirror Prompt を準備"
+    );
+    assert.equal(
+      commandTitleJa(commands, "kiwi.createLlmLocalMirrorDiffContext"),
+      "Kiwi: LLM Local Mirror Diff を準備"
+    );
+    for (const command of [
+      "kiwi.copyLlmPromptForCurrentSession",
+      "kiwi.createLlmLocalMirrorReviewPack",
+      "kiwi.copyLlmLocalMirrorReviewPrompt",
+      "kiwi.createLlmLocalMirrorKnowledgePack",
+      "kiwi.copyLlmLocalMirrorKnowledgePrompt"
+    ]) {
+      assert.equal(commands.some((item) => item.command === command), false);
+    }
+    const viewItemContext = (extension?.packageJSON.contributes?.menus?.["view/item/context"] ?? []) as Array<{
+      command: string;
+    }>;
+    assert.equal(
+      viewItemContext.some((item) => item.command === "kiwi.installLlmSkillPack"),
+      false
+    );
+    assert.equal(
+      viewItemContext.some((item) => item.command === "kiwi.startLlmEditSession"),
+      false
+    );
+    assert.equal(
+      viewItemContext.some((item) => item.command === "kiwi.checkLlmLocalMirrorSafety"),
+      false
+    );
+    assert.equal(
+      commands.some((item) => item.command === "kiwi.checkLlmLocalMirrorSafety"),
+      false
+    );
+    assert.equal(
+      viewItemContext.some((item) => item.command === "kiwi.createLlmLocalMirrorDiffContext"),
+      false
+    );
+    const repositoryMenus = (extension?.packageJSON.contributes?.menus?.["scm/repository"] ?? []) as Array<{
+      command: string;
+    }>;
+    assert.equal(
+      repositoryMenus.some((item) => item.command === "kiwi.startLlmEditSession"),
+      true
+    );
+    assert.equal(
+      repositoryMenus.some((item) => item.command === "kiwi.createLlmLocalMirrorDiffContext"),
+      true
+    );
+
+    const declinedWorkspaceRoot = await mkdtemp(path.join(os.tmpdir(), "kiwifs-agent-declined-"));
+    try {
+      await vscode.commands.executeCommand("kiwi.installLlmSkillPack", declinedWorkspaceRoot, {
+        updateGitignore: false
+      });
+      await vscode.commands.executeCommand("kiwi.startLlmEditSession", declinedWorkspaceRoot, {
+        updateGitignore: false
+      });
+      await assert.rejects(readFile(path.join(declinedWorkspaceRoot, ".gitignore"), "utf8"), /ENOENT/);
+      assert.match(
+        await readFile(path.join(declinedWorkspaceRoot, ".kiwi-agent", "prompt", "current", "prompt.md"), "utf8"),
+        /\.gitignore does not include \.kiwi-mirror\/, \.kiwi-agent\//
+      );
+      await assert.rejects(
+        readFile(path.join(declinedWorkspaceRoot, ".kiwi-agent", "prompt", "current", "review-checklist.md"), "utf8"),
+        /ENOENT/
+      );
+    } finally {
+      await rm(declinedWorkspaceRoot, { recursive: true, force: true });
+    }
+    await rm(agentWorkspaceRoot, { recursive: true, force: true });
   });
 
   it("uploads local changes from SCM and refreshes opened kiwi documents", async function () {
@@ -2472,10 +2906,10 @@ describe("extension host", () => {
 
   it("auto-checks freshness when the active kiwi editor changes", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
     const kiwiUri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const kiwiDocument = await vscode.workspace.openTextDocument(kiwiUri);
-    await vscode.window.showTextDocument(kiwiDocument);
+    await showTextDocumentAndWaitActive(kiwiDocument);
 
     await harness.simulateRemoteChange(501, (current) => ({
       ...current,
@@ -2486,16 +2920,16 @@ describe("extension host", () => {
       language: "markdown",
       content: "scratch"
     });
-    await vscode.window.showTextDocument(scratch, { preview: false });
-    await vscode.window.showTextDocument(kiwiDocument, { preview: false });
+    await showTextDocumentAndWaitActive(scratch, { preview: false });
+    await showTextDocumentAndWaitActive(kiwiDocument, { preview: false });
 
     await waitForTreeCaseDescription("501 - Login works.md", "remote changed");
 
     const refreshed = await vscode.commands.executeCommand<boolean>("kiwi.refreshCaseDocument");
     assert.equal(refreshed, true);
 
-    await vscode.window.showTextDocument(scratch, { preview: false });
-    await vscode.window.showTextDocument(kiwiDocument, { preview: false });
+    await showTextDocumentAndWaitActive(scratch, { preview: false });
+    await showTextDocumentAndWaitActive(kiwiDocument, { preview: false });
 
     await waitForTreeCaseDescription("501 - Login works.md", undefined);
     assert.match(kiwiDocument.getText(), /Auto-checked remote change\./);
@@ -2503,10 +2937,10 @@ describe("extension host", () => {
 
   it("refreshes active case documents only on explicit command", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
     const uri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const document = await vscode.workspace.openTextDocument(uri);
-    await vscode.window.showTextDocument(document);
+    await showTextDocumentAndWaitActive(document);
 
     await harness.simulateRemoteChange(501, (current) => ({
       ...current,
@@ -2522,10 +2956,10 @@ describe("extension host", () => {
 
   it("uses the active dirty editor as the local diff baseline", async function () {
     this.timeout(20000);
-    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await closeAllEditorsAndWait();
     const uri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const document = await vscode.workspace.openTextDocument(uri);
-    const editor = await vscode.window.showTextDocument(document);
+    const editor = await showTextDocumentAndWaitActive(document);
 
     await editor.edit((editBuilder) => {
       editBuilder.insert(new vscode.Position(document.lineCount, 0), "\n\nLocal-only edit.");
@@ -2553,9 +2987,10 @@ describe("extension host", () => {
 
   it("rejects refresh when active case document is dirty", async function () {
     this.timeout(20000);
+    await closeAllEditorsAndWait();
     const uri = vscode.Uri.parse("kiwi:/plans/100 - Regression/cases/501 - Login works.md");
     const document = await vscode.workspace.openTextDocument(uri);
-    const editor = await vscode.window.showTextDocument(document);
+    const editor = await showTextDocumentAndWaitActive(document);
 
     await editor.edit((editBuilder) => {
       editBuilder.insert(new vscode.Position(document.lineCount, 0), "\n\nLocal draft.");
@@ -2694,11 +3129,105 @@ async function waitForDocumentContent(
   throw new Error(`Timed out waiting for document content: ${uri.toString()}`);
 }
 
+async function showTextDocumentAndWaitActive(
+  document: vscode.TextDocument,
+  options?: vscode.TextDocumentShowOptions,
+  retries = 20
+): Promise<vscode.TextEditor> {
+  let lastEditor: vscode.TextEditor | undefined;
+  for (let index = 0; index < retries; index += 1) {
+    lastEditor = await vscode.window.showTextDocument(document, {
+      ...options,
+      preserveFocus: false
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (vscode.window.activeTextEditor?.document.uri.toString() === document.uri.toString()) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return vscode.window.activeTextEditor;
+    }
+    await vscode.commands.executeCommand("workbench.action.focusActiveEditorGroup");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  const activeUri = vscode.window.activeTextEditor?.document.uri.toString() ?? "<none>";
+  const visibleUris = vscode.window.visibleTextEditors
+    .map((editor) => editor.document.uri.toString())
+    .join(", ");
+  throw new Error(
+    `Timed out waiting for active editor: ${document.uri.toString()} ` +
+      `(active=${activeUri}, visible=[${visibleUris}], last=${lastEditor?.document.uri.toString() ?? "<none>"})`
+  );
+}
+
+async function closeAllEditorsAndWait(retries = 20): Promise<void> {
+  for (let index = 0; index < retries; index += 1) {
+    await revertAndCloseActiveEditor();
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    await vscode.commands.executeCommand("workbench.action.closeAllGroups");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    if (vscode.window.visibleTextEditors.length === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return;
+    }
+    for (const editor of [...vscode.window.visibleTextEditors]) {
+      await vscode.window.showTextDocument(editor.document, {
+        preserveFocus: false,
+        preview: false,
+        viewColumn: editor.viewColumn
+      });
+      await revertAndCloseActiveEditor();
+    }
+  }
+
+  const visibleUris = vscode.window.visibleTextEditors
+    .map((editor) => editor.document.uri.toString())
+    .join(", ");
+  throw new Error(`Timed out waiting for editors to close: [${visibleUris}]`);
+}
+
+async function revertAndCloseActiveEditor(): Promise<void> {
+  await vscode.commands.executeCommand("workbench.action.files.revert");
+  await vscode.commands.executeCommand("workbench.action.revertAndCloseActiveEditor");
+}
+
 function getKiwifsExtension(): vscode.Extension<unknown> | undefined {
   return (
     vscode.extensions.getExtension("yyamamot.vscode-kiwifs") ??
     vscode.extensions.getExtension("local.kiwifs")
   );
+}
+
+function commandTitleJa(
+  commands: Array<{ command: string; title?: string }>,
+  commandId: string
+): string | undefined {
+  const title = commands.find((item) => item.command === commandId)?.title;
+  const key = /^%(.+)%$/.exec(title ?? "")?.[1];
+  const extension = getKiwifsExtension();
+  if (!extension) {
+    return undefined;
+  }
+  const english = JSON.parse(
+    readFileSync(path.join(extension.extensionPath, "package.nls.json"), "utf8")
+  ) as Record<string, string>;
+  const japanese = JSON.parse(
+    readFileSync(path.join(extension.extensionPath, "package.nls.ja.json"), "utf8")
+  ) as Record<string, string>;
+  if (key) {
+    return japanese[key];
+  }
+  const englishKey = Object.entries(english).find(([, value]) => value === title)?.[0];
+  return englishKey ? japanese[englishKey] : title;
+}
+
+function pickActionSurfaceItem(
+  items: Array<{ command: string; label: string; category: string }> | undefined,
+  command: string
+): { command: string; label: string; category: string } | undefined {
+  const item = items?.find((candidate) => candidate.command === command);
+  return item
+    ? { command: item.command, label: item.label, category: item.category }
+    : undefined;
 }
 
 async function waitForTreeCaseDescription(
@@ -2723,6 +3252,27 @@ async function waitForTreeCaseDescription(
   }
 
   throw new Error(`Timed out waiting for tree description ${description ?? "<none>"} on ${label}`);
+}
+
+async function waitForLocalMirrorScmResource(
+  caseId: number,
+  status: string,
+  retries = 20
+): Promise<{ caseRef: { id: number; summary: string }; status: string }> {
+  for (let index = 0; index < retries; index += 1) {
+    const state = await vscode.commands.executeCommand<{
+      resources: Array<{ caseRef: { id: number; summary: string }; status: string }>;
+    }>("kiwi.__test.getLocalMirrorScmState");
+    const resource = state?.resources.find(
+      (candidate) => candidate.caseRef.id === caseId && candidate.status === status
+    );
+    if (resource) {
+      return resource;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new Error(`Timed out waiting for SCM resource case=${caseId} status=${status}`);
 }
 
 async function waitForTabState(uriString: string, expected: boolean, retries = 20): Promise<boolean> {

@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 import { KiwiAdapter } from "../adapter/types";
 import { KiwiError } from "../domain/errors";
 import { KiwiConfig, KiwiPlan, KiwiTestRun } from "../types";
+import type { UiReviewSnapshot } from "../harness/ui-review";
+import { localize } from "./l10n";
+import { renderTestRunFilterWebviewHtml } from "./webview/testRunFilterView";
 
 type ClientFactory = () => Promise<{
   adapter: KiwiAdapter;
@@ -32,6 +35,12 @@ type PanelSession = {
   message: string;
 };
 
+type PendingUiReviewSnapshot = {
+  resolve: (snapshot: UiReviewSnapshot) => void;
+  reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 type WebviewState = {
   formState: TestRunFilterFormState;
   options: TestRunFilterOptions;
@@ -42,6 +51,7 @@ type WebviewState = {
 
 export class TestRunFilterController implements vscode.Disposable {
   private session: PanelSession | undefined;
+  private pendingUiReviewSnapshot: PendingUiReviewSnapshot | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(
@@ -67,7 +77,7 @@ export class TestRunFilterController implements vscode.Disposable {
     const options = await this.loadOptions();
     const panel = vscode.window.createWebviewPanel(
       "kiwiTestRunFilter",
-      "テスト実行を探す",
+      localize("Find Test Runs"),
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -84,10 +94,10 @@ export class TestRunFilterController implements vscode.Disposable {
       options,
       results: [],
       isSearching: false,
-      message: "条件を入力して検索してください。"
+      message: localize("Enter conditions and search.")
     };
     this.session = session;
-    panel.webview.html = renderWebviewHtml(panel.webview);
+    panel.webview.html = renderTestRunFilterWebviewHtml(panel.webview);
     const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
       await this.handleMessage(session, message);
     });
@@ -125,6 +135,35 @@ export class TestRunFilterController implements vscode.Disposable {
     return run.id;
   }
 
+  async captureUiReviewSnapshotForTest(reason = "test"): Promise<UiReviewSnapshot> {
+    if (!this.session) {
+      throw new KiwiError("ValidationFailed", "Test Run filter panel is not open.");
+    }
+
+    this.pendingUiReviewSnapshot?.reject(new Error("A newer UI review snapshot request replaced this request."));
+    clearTimeout(this.pendingUiReviewSnapshot?.timeout);
+
+    return new Promise<UiReviewSnapshot>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (this.pendingUiReviewSnapshot?.resolve === resolve) {
+          this.pendingUiReviewSnapshot = undefined;
+        }
+        reject(new Error("Timed out waiting for test run filter UI review snapshot."));
+      }, 5000);
+      this.pendingUiReviewSnapshot = { resolve, reject, timeout };
+      void this.session?.panel.webview.postMessage({
+        type: "requestUiReviewSnapshot",
+        reason
+      }).then((accepted) => {
+        if (!accepted && this.pendingUiReviewSnapshot?.resolve === resolve) {
+          clearTimeout(timeout);
+          this.pendingUiReviewSnapshot = undefined;
+          reject(new Error("Test run filter Webview did not accept the UI review snapshot request."));
+        }
+      });
+    });
+  }
+
   private async handleMessage(session: PanelSession, message: unknown): Promise<void> {
     if (!isMessage(message)) {
       return;
@@ -138,7 +177,7 @@ export class TestRunFilterController implements vscode.Disposable {
         case "clear":
           session.formState = { query: "", planId: "", build: "" };
           session.results = [];
-          session.message = "条件を入力して検索してください。";
+          session.message = localize("Enter conditions and search.");
           this.pushState(session);
           break;
         case "reload":
@@ -146,6 +185,13 @@ export class TestRunFilterController implements vscode.Disposable {
           break;
         case "open":
           await this.openResult(session, message.runId);
+          break;
+        case "ui-review-snapshot":
+          if (this.pendingUiReviewSnapshot) {
+            clearTimeout(this.pendingUiReviewSnapshot.timeout);
+            this.pendingUiReviewSnapshot.resolve(message.snapshot);
+            this.pendingUiReviewSnapshot = undefined;
+          }
           break;
         case "close":
           session.panel.dispose();
@@ -186,13 +232,13 @@ export class TestRunFilterController implements vscode.Disposable {
       !session.formState.build
     ) {
       session.results = [];
-      session.message = "条件を入力して検索してください。";
+      session.message = localize("Enter conditions and search.");
       this.pushState(session);
       return [];
     }
 
     session.isSearching = true;
-    session.message = "テスト実行を検索中...";
+    session.message = localize("Searching Test Runs...");
     this.pushState(session);
     try {
       const { adapter, config } = await this.clientFactory();
@@ -204,8 +250,8 @@ export class TestRunFilterController implements vscode.Disposable {
       session.results = attachPlanNames(results, session.options.plans);
       session.message =
         session.results.length === 0
-          ? "一致する Test Run はありません。"
-          : `${session.results.length} 件の Test Run を表示しています。`;
+          ? localize("No matching Test Runs.")
+          : localize("Showing {0} Test Runs.", session.results.length);
       this.pushState(session);
       return session.results;
     } finally {
@@ -216,7 +262,7 @@ export class TestRunFilterController implements vscode.Disposable {
 
   private async openResult(session: PanelSession, runId: number): Promise<void> {
     await this.openRun(runId);
-    session.message = `Test Run ${runId} をダッシュボードで開きました。`;
+    session.message = localize("Opened Test Run {0} in the dashboard.", runId);
     this.pushState(session);
   }
 
@@ -225,7 +271,7 @@ export class TestRunFilterController implements vscode.Disposable {
     const [plans, runs] = await Promise.all([adapter.listPlans(config), adapter.listTestRuns(config)]);
     return {
       plans: [
-        { value: "", label: "All Plans" },
+        { value: "", label: localize("All Plans") },
         ...plans
           .sort((left, right) => left.id - right.id)
           .map((plan) => ({ value: String(plan.id), label: `${plan.id} - ${plan.name}` }))
@@ -305,222 +351,14 @@ function isMessage(
 ): value is
   | { type: "search"; formState: TestRunFilterFormState }
   | { type: "clear" | "reload" | "close" }
-  | { type: "open"; runId: number } {
+  | { type: "open"; runId: number }
+  | { type: "ui-review-snapshot"; snapshot: UiReviewSnapshot } {
   if (!value || typeof value !== "object") {
     return false;
   }
-  return typeof (value as { type?: unknown }).type === "string";
-}
-
-function renderWebviewHtml(webview: vscode.Webview): string {
-  const nonce = String(Date.now());
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} https:; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>テスト実行を探す</title>
-  <style>
-    body {
-      font-family: var(--vscode-font-family);
-      color: var(--vscode-editor-foreground);
-      padding: 16px;
-    }
-    form {
-      display: grid;
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    label {
-      display: grid;
-      gap: 4px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-    input, select, button {
-      width: 100%;
-      box-sizing: border-box;
-      padding: 6px 8px;
-      color: inherit;
-      background: var(--vscode-input-background);
-      border: 1px solid var(--vscode-input-border, transparent);
-    }
-    button {
-      width: auto;
-      cursor: pointer;
-      background: var(--vscode-button-background);
-      color: var(--vscode-button-foreground);
-      border: 0;
-    }
-    button.secondary {
-      color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-      background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-    }
-    button.link {
-      color: var(--vscode-textLink-foreground);
-      background: transparent;
-      border: 0;
-      padding: 0;
-    }
-    .actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-    .message {
-      color: var(--vscode-descriptionForeground);
-      margin: 0 0 12px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-    th, td {
-      border-bottom: 1px solid var(--vscode-panel-border);
-      padding: 8px;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-      font-weight: 600;
-    }
-    .summary {
-      min-width: 220px;
-    }
-    h1 {
-      margin: 0 0 16px;
-      font-size: 26px;
-      font-weight: 600;
-    }
-    .empty {
-      color: var(--vscode-descriptionForeground);
-      padding: 8px 0;
-    }
-  </style>
-</head>
-<body>
-  <h1>テスト実行を探す</h1>
-  <form id="form">
-    <label for="query">Query
-      <input id="query" type="text" placeholder="例: 300 / Regression run" />
-    </label>
-    <label for="plan">Plan
-      <select id="plan"></select>
-    </label>
-    <label for="build">Build
-      <select id="build"></select>
-    </label>
-    <div class="actions">
-      <button class="primary" id="search" type="submit">検索</button>
-      <button class="secondary" id="clear" type="button">クリア</button>
-      <button class="secondary" id="reload" type="button">再読み込み</button>
-      <button class="secondary" id="close" type="button">閉じる</button>
-    </div>
-  </form>
-  <div class="message" id="message"></div>
-  <div id="results"></div>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    const form = document.getElementById('form');
-    const query = document.getElementById('query');
-    const plan = document.getElementById('plan');
-    const build = document.getElementById('build');
-    const message = document.getElementById('message');
-    const results = document.getElementById('results');
-    const searchButton = document.getElementById('search');
-    const clearButton = document.getElementById('clear');
-    const reloadButton = document.getElementById('reload');
-    const closeButton = document.getElementById('close');
-
-    function postSearch() {
-      vscode.postMessage({
-        type: 'search',
-        formState: {
-          query: query.value,
-          planId: plan.value,
-          build: build.value
-        }
-      });
-    }
-
-    function renderBuildOptions(state) {
-      const builds = state.options.buildOptionsByPlan[plan.value] ?? state.options.buildOptionsByPlan[''] ?? [];
-      build.innerHTML = ['<option value="">All Builds</option>']
-        .concat(builds.map((item) => '<option value="' + item + '">' + item + '</option>'))
-        .join('');
-      if (state.formState.build && builds.includes(state.formState.build)) {
-        build.value = state.formState.build;
-      } else {
-        build.value = '';
-      }
-    }
-
-    function renderResults(state) {
-      if (state.results.length === 0) {
-        if (state.message === '条件を入力して検索してください。') {
-          results.innerHTML = '';
-          return;
-        }
-        results.innerHTML = '<div class="empty">一致する Test Run はありません。</div>';
-        return;
-      }
-      results.innerHTML = '<table><thead><tr><th>runId</th><th class="summary">summary</th><th>plan</th><th>build</th><th>manager</th><th></th></tr></thead><tbody>' +
-        state.results.map((run) => '<tr>' +
-          '<td>TR' + run.id + '</td>' +
-          '<td>' + escapeHtml(run.summary) + '</td>' +
-          '<td>' + escapeHtml(run.planName || '-') + '</td>' +
-          '<td>' + escapeHtml(run.build || '-') + '</td>' +
-          '<td>' + escapeHtml(run.manager || '-') + '</td>' +
-          '<td><button class="link" type="button" data-run-id="' + run.id + '">開く</button></td>' +
-        '</tr>').join('') +
-        '</tbody></table>';
-      results.querySelectorAll('button[data-run-id]').forEach((button) => {
-        button.addEventListener('click', () => {
-          vscode.postMessage({ type: 'open', runId: Number(button.dataset.runId) });
-        });
-      });
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;');
-    }
-
-    function render(state) {
-      query.value = state.formState.query;
-      plan.innerHTML = state.options.plans.map((item) => '<option value="' + item.value + '">' + item.label + '</option>').join('');
-      plan.value = state.formState.planId;
-      renderBuildOptions(state);
-      message.textContent = state.message;
-      searchButton.disabled = state.isSearching;
-      clearButton.disabled = state.isSearching;
-      renderResults(state);
-    }
-
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      postSearch();
-    });
-    clearButton.addEventListener('click', () => vscode.postMessage({ type: 'clear' }));
-    reloadButton.addEventListener('click', () => vscode.postMessage({ type: 'reload' }));
-    closeButton.addEventListener('click', () => vscode.postMessage({ type: 'close' }));
-    plan.addEventListener('change', () => renderBuildOptions(window.__state));
-
-    window.addEventListener('message', (event) => {
-      const state = event.data?.state;
-      if (!state) {
-        return;
-      }
-      window.__state = state;
-      render(state);
-    });
-  </script>
-</body>
-</html>`;
+  const type = (value as { type?: unknown }).type;
+  if (type === "ui-review-snapshot") {
+    return Boolean((value as { snapshot?: unknown }).snapshot);
+  }
+  return typeof type === "string";
 }

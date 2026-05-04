@@ -4,6 +4,9 @@ import { KiwiError } from "../domain/errors";
 import { diffExecutionResultPatch } from "../domain/executionResultForm";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { KiwiBuildOption, KiwiCaseExecution, KiwiConfig, KiwiExecutionStatus, KiwiPlan, KiwiTestRun } from "../types";
+import { localize } from "./l10n";
+import { renderCaseExecutionBoardWebviewHtml } from "./webview/caseExecutionBoardView";
+import { escapeHtml } from "./webview/webviewUtils";
 import {
   buildRegisteredCaseExecutionBoardGroups,
   CaseExecutionBoardGroup,
@@ -92,7 +95,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
         buildOptionsByPlan: {},
         groups: [],
         statuses: [],
-        message: "テスト実行を読み込み中...",
+        message: localize("Loading Test Runs..."),
         isLoading: true,
         addSection: {
           createForm: {
@@ -108,7 +111,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
       sourceExecutions: []
     };
     this.sessions.set(key, session);
-    panel.webview.html = renderWebviewHtml(panel.webview, session.state);
+    panel.webview.html = renderCaseExecutionBoardWebviewHtml(panel.webview, panelTitle(session.state.target), cloneBoardState(session.state));
     const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
       await this.handleMessage(session, message);
     });
@@ -222,7 +225,7 @@ export class CaseExecutionBoardController implements vscode.Disposable {
 
   private async reload(session: PanelSession): Promise<void> {
     session.state.isLoading = true;
-    session.state.message = "テスト実行を読み込み中...";
+    session.state.message = localize("Loading Test Runs...");
     this.pushState(session);
 
     await this.refreshBoardData(session, { includeBuilds: true, includeStatuses: true });
@@ -267,15 +270,15 @@ export class CaseExecutionBoardController implements vscode.Disposable {
     session.state.isLoading = false;
     session.state.message =
       executions.length === 0
-        ? "テストケースはまだどの Test Run にも登録されていません。"
-        : `${executions.length} 件の登録済み実行結果があります。`;
+        ? localize("This test case is not registered in any Test Run yet.")
+        : localize("There are {0} registered execution results.", executions.length);
     this.pushState(session);
   }
 
   private async promptAndAddRun(session: PanelSession): Promise<void> {
     const query = await vscode.window.showInputBox({
-      prompt: "追加する Test Run ID または summary を入力してください",
-      placeHolder: "例: 301 / nightly"
+      prompt: localize("Enter a Test Run ID or summary to add"),
+      placeHolder: localize("Example: 301 / nightly")
     });
     if (query === undefined) {
       return;
@@ -293,12 +296,12 @@ export class CaseExecutionBoardController implements vscode.Disposable {
         run
       }));
     if (items.length === 0) {
-      session.state.message = "追加できる Test Run は見つかりませんでした。";
+      session.state.message = localize("No addable Test Runs were found.");
       this.pushState(session);
       return;
     }
     const picked = await vscode.window.showQuickPick(items, {
-      placeHolder: "テストケースに追加する Test Run を選択してください",
+      placeHolder: localize("Select a Test Run to add this test case to"),
       matchOnDescription: true,
       matchOnDetail: true
     });
@@ -583,232 +586,7 @@ function cloneBoardState(state: BoardState): BoardState {
 }
 
 function panelTitle(target: CaseExecutionBoardTarget): string {
-  return `テストケースの実行を管理: ${target.caseRef.id} - ${target.caseRef.summary}`;
-}
-
-function renderWebviewHtml(webview: vscode.Webview, state: BoardState): string {
-  const nonce = `${Date.now()}${Math.random().toString(16).slice(2)}`;
-  const bootstrap = JSON.stringify(cloneBoardState(state));
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(panelTitle(state.target))}</title>
-  <style>
-    body { color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); padding: 20px; }
-    .toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
-    .summary { color: var(--vscode-descriptionForeground); margin-bottom: 16px; }
-    .section { border: 1px solid var(--vscode-panel-border); border-radius: 8px; margin-bottom: 18px; padding: 14px; }
-    .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-    .group-title { font-weight: 600; margin-bottom: 10px; }
-    .row { display: grid; grid-template-columns: minmax(220px, 1.5fr) minmax(110px, .7fr) minmax(140px, .8fr) minmax(220px, 1.2fr) auto auto; gap: 8px; align-items: start; margin-bottom: 8px; }
-    .run-title { font-weight: 600; }
-    .hint { color: var(--vscode-descriptionForeground); font-size: 12px; }
-    select, input, textarea, button { box-sizing: border-box; }
-    select, input, textarea { width: 100%; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; }
-    textarea { min-height: 72px; resize: vertical; }
-    .create-form { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(180px, .9fr) minmax(220px, 1.1fr) minmax(180px, .9fr) auto; gap: 8px; margin-top: 12px; }
-    .message { margin-top: 14px; color: var(--vscode-descriptionForeground); }
-    .empty { color: var(--vscode-descriptionForeground); padding: 18px 0; }
-  </style>
-</head>
-<body>
-  <div class="toolbar">
-    <button id="reload">再読み込み</button>
-    <button id="close">閉じる</button>
-  </div>
-  <div class="summary" id="summary"></div>
-  <section class="section">
-    <div class="section-head">
-      <strong>追加</strong>
-      <div>
-        <button id="addExistingRun">既存の Test Run に追加</button>
-        <button id="toggleCreateRun">この計画で Test Run を作成</button>
-      </div>
-    </div>
-    <div class="hint">未登録 run は必要な時だけ検索して追加します。</div>
-    <div id="createFormHost"></div>
-  </section>
-  <section class="section">
-    <div class="section-head">
-      <strong>登録済み</strong>
-    </div>
-    <div id="groups"></div>
-  </section>
-  <div class="message" id="message"></div>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    let state = ${bootstrap};
-    const summaryEl = document.getElementById('summary');
-    const groupsEl = document.getElementById('groups');
-    const createFormHost = document.getElementById('createFormHost');
-    const messageEl = document.getElementById('message');
-    const reloadButton = document.getElementById('reload');
-    const closeButton = document.getElementById('close');
-    const addExistingRunButton = document.getElementById('addExistingRun');
-    const toggleCreateRunButton = document.getElementById('toggleCreateRun');
-
-    function render() {
-      summaryEl.textContent = '対象テストケース: ' + state.target.caseRef.id + ' - ' + state.target.caseRef.summary;
-      messageEl.textContent = state.message || '';
-      toggleCreateRunButton.textContent = state.addSection.createForm.isVisible ? '作成フォームを閉じる' : 'この計画で Test Run を作成';
-
-      renderCreateForm();
-      renderGroups();
-    }
-
-    function renderCreateForm() {
-      createFormHost.innerHTML = '';
-      if (!state.addSection.createForm.isVisible) return;
-
-      const form = document.createElement('div');
-      form.className = 'create-form';
-      const summary = document.createElement('input');
-      summary.placeholder = 'Test Run summary';
-      summary.value = state.addSection.createForm.summary || '';
-
-      const plan = document.createElement('select');
-      for (const item of state.plans) {
-        const option = document.createElement('option');
-        option.value = String(item.id);
-        option.textContent = item.id + ' - ' + item.name;
-        if (String(item.id) === state.addSection.createForm.planId) option.selected = true;
-        plan.appendChild(option);
-      }
-
-      const build = document.createElement('select');
-      fillBuildOptions(build, state.addSection.createForm.planId, state.addSection.createForm.buildId);
-      plan.addEventListener('change', () => {
-        build.innerHTML = '';
-        vscode.postMessage({ type: 'changeCreatePlan', planId: Number(plan.value) });
-      });
-
-      const manager = document.createElement('input');
-      manager.placeholder = 'manager';
-      manager.value = state.addSection.createForm.manager || '';
-
-      const submit = document.createElement('button');
-      submit.textContent = '作成して追加';
-      submit.addEventListener('click', () => {
-        vscode.postMessage({
-          type: 'createRun',
-          planId: Number(plan.value),
-          summary: summary.value,
-          buildId: Number(build.value),
-          manager: manager.value
-        });
-      });
-
-      form.appendChild(summary);
-      form.appendChild(plan);
-      form.appendChild(build);
-      form.appendChild(manager);
-      form.appendChild(submit);
-      createFormHost.appendChild(form);
-    }
-
-    function fillBuildOptions(select, planId, selectedBuildId) {
-      select.innerHTML = '';
-      const options = state.buildOptionsByPlan[planId] || [];
-      for (const item of options) {
-        const option = document.createElement('option');
-        option.value = String(item.id);
-        option.textContent = item.name;
-        if (String(item.id) === selectedBuildId) option.selected = true;
-        select.appendChild(option);
-      }
-    }
-
-    function renderGroups() {
-      groupsEl.innerHTML = '';
-      if (state.groups.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty';
-        empty.textContent = 'テストケースはまだどの Test Run にも登録されていません。';
-        groupsEl.appendChild(empty);
-        return;
-      }
-      for (const group of state.groups) {
-        const section = document.createElement('section');
-        const title = document.createElement('div');
-        title.className = 'group-title';
-        title.textContent = group.planName + ' (Plan ID: ' + group.planId + ')';
-        section.appendChild(title);
-
-        for (const row of group.rows) {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'row';
-
-          const meta = document.createElement('div');
-          meta.innerHTML = '<div class="run-title">TR' + row.runId + ' ' + escapeHtml(row.runSummary) + '</div>';
-          wrapper.appendChild(meta);
-
-          const build = document.createElement('div');
-          build.textContent = row.build || '';
-          wrapper.appendChild(build);
-
-          const status = document.createElement('select');
-          const emptyOption = document.createElement('option');
-          emptyOption.value = '';
-          emptyOption.textContent = 'status を選択';
-          status.appendChild(emptyOption);
-          for (const item of state.statuses) {
-            const option = document.createElement('option');
-            option.value = item.name;
-            option.textContent = item.name;
-            if (item.name === row.status) option.selected = true;
-            status.appendChild(option);
-          }
-          wrapper.appendChild(status);
-
-          const comment = document.createElement('textarea');
-          comment.placeholder = 'comment';
-          comment.value = row.comment || '';
-          wrapper.appendChild(comment);
-
-          const save = document.createElement('button');
-          save.textContent = '保存';
-          save.addEventListener('click', () => {
-            vscode.postMessage({ type: 'saveRow', runId: row.runId, status: status.value, comment: comment.value });
-          });
-          wrapper.appendChild(save);
-
-          const open = document.createElement('button');
-          open.textContent = '開く';
-          open.addEventListener('click', () => vscode.postMessage({ type: 'openRow', runId: row.runId }));
-          wrapper.appendChild(open);
-
-          section.appendChild(wrapper);
-        }
-        groupsEl.appendChild(section);
-      }
-    }
-
-    window.addEventListener('message', (event) => {
-      if (event.data?.type === 'state') {
-        state = event.data.state;
-        render();
-      }
-    });
-    reloadButton.addEventListener('click', () => vscode.postMessage({ type: 'reload' }));
-    closeButton.addEventListener('click', () => vscode.postMessage({ type: 'close' }));
-    addExistingRunButton.addEventListener('click', () => vscode.postMessage({ type: 'addExistingRun' }));
-    toggleCreateRunButton.addEventListener('click', () => vscode.postMessage({ type: 'toggleCreateForm' }));
-    render();
-
-    function escapeHtml(value) {
-      return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-  </script>
-</body>
-</html>`;
+  return localize("Manage Test Case Executions: {0} - {1}", target.caseRef.id, target.caseRef.summary);
 }
 
 type Message =
@@ -823,15 +601,6 @@ type Message =
 
 function isMessage(value: unknown): value is Message {
   return typeof value === "object" && value !== null && "type" in value;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function humanMessage(error: unknown): string {

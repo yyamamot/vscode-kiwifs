@@ -1,0 +1,33 @@
+{
+  "id": "case-filter-metadata",
+  "screen": "case-filter",
+  "description": "Render case filter results after metadata-only filters are applied.",
+  "command": "kiwi.filterCases",
+  "formState": {
+    "query": "",
+    "queryTarget": "id-summary",
+    "planId": "100",
+    "status": "CONFIRMED",
+    "priority": "P1",
+    "tagsInput": "SMOKE"
+  },
+  "expected": {
+    "hasResults": true,
+    "resultCount": 2,
+    "resultIds": [501, 511],
+    "summaries": ["Login works", "Bulk target one"],
+    "selectedCount": 0
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "plan-select",
+    "status-select",
+    "priority-select",
+    "tags-input",
+    "result-list",
+    "result-row-501",
+    "result-row-511",
+    "bulk-actions"
+  ]
+}

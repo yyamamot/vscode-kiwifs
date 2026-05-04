@@ -7,6 +7,8 @@ import {
   toExecutionResultFormState
 } from "../domain/executionResultForm";
 import { KiwiCaseExecution, KiwiConfig, KiwiExecutionStatus, KiwiExecutionUpdatePatch } from "../types";
+import { localize } from "./l10n";
+import { renderExecutionResultWebviewHtml } from "./webview/executionResultView";
 
 type ClientFactory = () => Promise<{
   adapter: KiwiAdapter;
@@ -94,10 +96,10 @@ export class ExecutionResultController implements vscode.Disposable {
       formState: toExecutionResultFormState(execution),
       statuses,
       isSaving: false,
-      message: "実行結果を入力してください。"
+      message: localize("Enter an execution result.")
     };
     this.sessions.set(key, session);
-    panel.webview.html = renderWebviewHtml(panel.webview, session);
+    panel.webview.html = renderExecutionResultWebviewHtml(panel.webview, panelTitle(session.target), toWebviewState(session));
 
     const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
       await this.handleMessage(session, message);
@@ -161,7 +163,7 @@ export class ExecutionResultController implements vscode.Disposable {
     const patch = diffExecutionResultPatch(session.sourceExecution, formState, session.statuses);
     session.formState = { ...formState };
     session.isSaving = true;
-    session.message = "保存中...";
+    session.message = localize("Saving...");
     this.pushState(session);
     try {
       const { adapter, config } = await this.clientFactory();
@@ -173,7 +175,7 @@ export class ExecutionResultController implements vscode.Disposable {
       session.sourceExecution = updatedExecution;
       session.target = { ...session.target, execution: updatedExecution };
       session.formState = toExecutionResultFormState(updatedExecution);
-      session.message = changedFields.length === 0 ? "変更はありません。" : "実行結果を保存しました。";
+      session.message = changedFields.length === 0 ? localize("No changes.") : localize("Saved execution result.");
       const result: ExecutionResultSaveResult = {
         executionId: updatedExecution.id,
         caseId: updatedExecution.caseId,
@@ -198,7 +200,7 @@ export class ExecutionResultController implements vscode.Disposable {
     session.sourceExecution = execution;
     session.target = { ...session.target, execution };
     session.formState = toExecutionResultFormState(execution);
-    session.message = "再読み込みしました。";
+    session.message = localize("Reloaded.");
     this.pushState(session);
   }
 
@@ -240,76 +242,6 @@ function toWebviewState(session: PanelSession): WebviewState {
   };
 }
 
-function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): string {
-  const nonce = `${Date.now()}${Math.random().toString(16).slice(2)}`;
-  const bootstrap = JSON.stringify(toWebviewState(session));
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(panelTitle(session.target))}</title>
-  <style>
-    body { color: var(--vscode-foreground); background: var(--vscode-editor-background); font-family: var(--vscode-font-family); padding: 20px; }
-    label { display: block; margin-top: 14px; font-weight: 600; }
-    select, textarea { width: 100%; box-sizing: border-box; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); padding: 8px; }
-    textarea { min-height: 120px; }
-    button { margin-top: 18px; margin-right: 8px; }
-    .meta { color: var(--vscode-descriptionForeground); line-height: 1.6; }
-    .message { margin-top: 12px; color: var(--vscode-descriptionForeground); }
-  </style>
-</head>
-<body>
-  <h1>テストケースの実行結果を更新</h1>
-  <div class="meta" id="meta"></div>
-  <label for="status">Status</label>
-  <select id="status"></select>
-  <label for="comment">Comment</label>
-  <textarea id="comment" placeholder="任意のコメント"></textarea>
-  <div>
-    <button id="save">保存</button>
-    <button id="reload">再読み込み</button>
-    <button id="close">キャンセル</button>
-  </div>
-  <div class="message" id="message"></div>
-  <script nonce="${nonce}">
-    const vscode = acquireVsCodeApi();
-    let state = ${bootstrap};
-    const status = document.getElementById('status');
-    const comment = document.getElementById('comment');
-    const save = document.getElementById('save');
-    const message = document.getElementById('message');
-    const meta = document.getElementById('meta');
-    function render() {
-      meta.textContent = 'Test Run ' + state.target.execution.runId + ' - ' + state.target.execution.runSummary + ' / build: ' + (state.target.execution.build || '-');
-      status.innerHTML = '';
-      for (const option of state.statuses) {
-        const item = document.createElement('option');
-        item.value = option.name;
-        item.textContent = option.name;
-        if (option.name === state.formState.status) item.selected = true;
-        status.appendChild(item);
-      }
-      comment.value = state.formState.comment || '';
-      save.disabled = state.isSaving;
-      message.textContent = state.message || '';
-    }
-    save.addEventListener('click', () => vscode.postMessage({ type: 'save', formState: { status: status.value, comment: comment.value } }));
-    document.getElementById('reload').addEventListener('click', () => vscode.postMessage({ type: 'reload' }));
-    document.getElementById('close').addEventListener('click', () => vscode.postMessage({ type: 'close' }));
-    window.addEventListener('message', (event) => {
-      if (event.data && event.data.type === 'state') {
-        state = event.data;
-        render();
-      }
-    });
-    render();
-  </script>
-</body>
-</html>`;
-}
-
 function isMessage(value: unknown): value is
   | { type: "save"; formState: ExecutionResultFormState }
   | { type: "reload" }
@@ -322,15 +254,7 @@ function sessionKey(executionId: number): string {
 }
 
 function panelTitle(target: ExecutionResultTarget): string {
-  return `テストケースの実行結果を更新: ${target.caseRef.id} - ${target.caseRef.summary}`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+  return localize("Update Test Case Execution Result: {0} - {1}", target.caseRef.id, target.caseRef.summary);
 }
 
 function humanMessage(error: unknown): string {

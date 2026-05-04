@@ -14,6 +14,8 @@ import {
   toEditableCaseMetadata
 } from "../domain/caseMetadataDocument";
 import { KiwiError } from "../domain/errors";
+import { localize } from "./l10n";
+import { renderCaseMetadataEditorWebviewHtml } from "./webview/caseMetadataEditorView";
 
 export type MetadataEditorMode = "edit" | "create" | "duplicate";
 
@@ -141,7 +143,16 @@ export class CaseMetadataEditorController implements vscode.Disposable {
     };
     this.sessions.set(key, session);
 
-    panel.webview.html = renderWebviewHtml(panel.webview, session);
+    panel.webview.html = renderCaseMetadataEditorWebviewHtml(panel.webview, session.panel.title, {
+      formState: session.formState,
+      options: session.options,
+      templateOptions: session.templateOptions,
+      selectedTemplateId: session.selectedTemplateId,
+      templateWarning: session.templateWarning,
+      isSaving: session.isSaving,
+      mode: session.target.mode,
+      actionLabel: actionLabel(session.target.mode)
+    });
     const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
       await this.handleMessage(session, message);
     });
@@ -380,7 +391,7 @@ export class CaseMetadataEditorController implements vscode.Disposable {
     if (statuses.length === 0 || priorities.length === 0) {
       throw new KiwiError(
         "ValidationFailed",
-        "Status または Priority の候補が取得できませんでした。"
+        localize("Status or Priority candidates could not be loaded.")
       );
     }
 
@@ -416,214 +427,6 @@ export class CaseMetadataEditorController implements vscode.Disposable {
       ...state
     });
   }
-}
-
-function renderWebviewHtml(webview: vscode.Webview, session: PanelSession): string {
-  const nonce = createNonce();
-  const bootstrap = JSON.stringify({
-    formState: session.formState,
-    options: session.options,
-    templateOptions: session.templateOptions,
-    selectedTemplateId: session.selectedTemplateId,
-    templateWarning: session.templateWarning,
-    isSaving: session.isSaving,
-    mode: session.target.mode,
-    actionLabel: actionLabel(session.target.mode)
-  });
-
-  return `<!DOCTYPE html>
-<html lang="ja">
-  <head>
-    <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(session.panel.title)}</title>
-    <style>
-      :root {
-        color-scheme: light dark;
-      }
-      body {
-        font-family: var(--vscode-font-family);
-        color: var(--vscode-foreground);
-        background: var(--vscode-editor-background);
-        margin: 0;
-        padding: 20px;
-      }
-      form {
-        display: grid;
-        gap: 16px;
-        max-width: 720px;
-      }
-      label {
-        display: grid;
-        gap: 6px;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      input, select {
-        width: 100%;
-        box-sizing: border-box;
-        padding: 8px 10px;
-        color: var(--vscode-input-foreground);
-        background: var(--vscode-input-background);
-        border: 1px solid var(--vscode-input-border, transparent);
-      }
-      .description {
-        color: var(--vscode-descriptionForeground);
-        font-size: 12px;
-      }
-      .template-warning {
-        color: var(--vscode-notificationsWarningIcon-foreground, var(--vscode-descriptionForeground));
-        font-size: 12px;
-      }
-      .actions {
-        display: flex;
-        gap: 8px;
-      }
-      button {
-        padding: 8px 14px;
-        border: 1px solid var(--vscode-button-border, transparent);
-        cursor: pointer;
-      }
-      button.primary {
-        color: var(--vscode-button-foreground);
-        background: var(--vscode-button-background);
-      }
-      button.secondary {
-        color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
-        background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
-      }
-      .error {
-        min-height: 1.2em;
-        color: var(--vscode-errorForeground);
-      }
-    </style>
-  </head>
-  <body>
-    <form id="form">
-      <div class="description" id="description"></div>
-      <label>Summary
-        <input id="summary" type="text" />
-      </label>
-      <label>Status
-        <select id="status"></select>
-      </label>
-      <label>Priority
-        <select id="priority"></select>
-      </label>
-      <label>Tags
-        <input id="tagsInput" type="text" placeholder="smoke, regression" />
-      </label>
-      <label id="templateLabel">Template
-        <select id="template"></select>
-        <span class="description">選択したテンプレートの本文を初期本文として作成します。</span>
-      </label>
-      <div class="template-warning" id="templateWarning"></div>
-      <div class="error" id="error"></div>
-      <div class="actions">
-        <button class="primary" id="save" type="submit">保存</button>
-        <button class="secondary" id="reload" type="button">再読み込み</button>
-        <button class="secondary" id="cancel" type="button">キャンセル</button>
-      </div>
-    </form>
-    <script nonce="${nonce}">
-      const vscode = acquireVsCodeApi();
-      const form = document.getElementById('form');
-      const summary = document.getElementById('summary');
-      const status = document.getElementById('status');
-      const priority = document.getElementById('priority');
-      const tagsInput = document.getElementById('tagsInput');
-      const templateLabel = document.getElementById('templateLabel');
-      const template = document.getElementById('template');
-      const templateWarning = document.getElementById('templateWarning');
-      const description = document.getElementById('description');
-      const saveButton = document.getElementById('save');
-      const reloadButton = document.getElementById('reload');
-      const cancelButton = document.getElementById('cancel');
-      const error = document.getElementById('error');
-      let state = ${bootstrap};
-
-      function renderSelect(select, values, current) {
-        select.innerHTML = '';
-        for (const value of values) {
-          const option = document.createElement('option');
-          option.value = value;
-          option.textContent = value;
-          option.selected = value === current;
-          select.appendChild(option);
-        }
-      }
-
-      function renderTemplateSelect(select, options, current) {
-        select.innerHTML = '';
-        for (const item of options) {
-          const option = document.createElement('option');
-          option.value = item.id;
-          option.textContent = item.name;
-          option.selected = item.id === current;
-          select.appendChild(option);
-        }
-      }
-
-      function renderDescription(mode) {
-        if (mode === 'create') {
-          return 'metadata を入力してテスト計画に新規テストケースを作成します。本文は作成後に Case Document で編集します。';
-        }
-        if (mode === 'duplicate') {
-          return '元の本文を複製して新しいテストケースを作成します。本文は作成後に Case Document で編集します。';
-        }
-        return 'metadata を編集します。本文は更新しません。';
-      }
-
-      function render() {
-        summary.value = state.formState.summary;
-        tagsInput.value = state.formState.tagsInput;
-        renderSelect(status, state.options.statuses, state.formState.status);
-        renderSelect(priority, state.options.priorities, state.formState.priority);
-        renderTemplateSelect(template, state.templateOptions || [], state.selectedTemplateId);
-        templateLabel.style.display = state.mode === 'create' ? 'grid' : 'none';
-        templateWarning.style.display = state.mode === 'create' && state.templateWarning ? 'block' : 'none';
-        templateWarning.textContent = state.templateWarning || '';
-        description.textContent = renderDescription(state.mode);
-        saveButton.disabled = state.isSaving;
-        saveButton.textContent = state.actionLabel;
-        reloadButton.disabled = state.isSaving;
-      }
-
-      form.addEventListener('submit', (event) => {
-        event.preventDefault();
-        error.textContent = '';
-        vscode.postMessage({
-          type: 'save',
-          formState: {
-            summary: summary.value,
-            status: status.value,
-            priority: priority.value,
-            tagsInput: tagsInput.value
-          },
-          selectedTemplateId: template.value
-        });
-      });
-      reloadButton.addEventListener('click', () => {
-        error.textContent = '';
-        vscode.postMessage({ type: 'reload', selectedTemplateId: template.value });
-      });
-      cancelButton.addEventListener('click', () => {
-        vscode.postMessage({ type: 'cancel' });
-      });
-      window.addEventListener('message', (event) => {
-        const message = event.data;
-        if (message.type === 'state') {
-          state = message;
-          render();
-        } else if (message.type === 'error') {
-          error.textContent = message.message;
-        }
-      });
-      render();
-    </script>
-  </body>
-</html>`;
 }
 
 function isMessage(
@@ -671,7 +474,7 @@ async function loadTemplateState(
   } catch (error) {
     return {
       templateOptions: buildCaseTemplateOptions([]),
-      templateWarning: `Kiwi のテンプレートを取得できませんでした。既定テンプレートで作成できます。`
+      templateWarning: localize("Could not load Kiwi templates. You can create with the default template.")
     };
   }
 }
@@ -702,36 +505,23 @@ function testSessionKey(identifier: number, mode: MetadataEditorMode): string {
 function actionLabel(mode: MetadataEditorMode): string {
   switch (mode) {
     case "create":
-      return "作成";
+      return localize("Create");
     case "duplicate":
-      return "複製して作成";
+      return localize("Duplicate and Create");
     default:
-      return "保存";
+      return localize("Save");
   }
 }
 
 function panelTitle(target: MetadataEditorTarget, sourceCase?: KiwiCase): string {
   switch (target.mode) {
     case "create":
-      return `テスト計画に新規テストケースを作成: ${target.plan.name}`;
+      return localize("Create New Test Case in Test Plan: {0}", target.plan.name);
     case "duplicate":
-      return `テストケースを複製: ${sourceCase?.summary ?? target.caseRef.summary}`;
+      return localize("Duplicate Test Case: {0}", sourceCase?.summary ?? target.caseRef.summary);
     default:
-      return `テストケースのメタデータを編集: ${sourceCase?.summary ?? target.caseRef.summary}`;
+      return localize("Edit Test Case Basic Information: {0}", sourceCase?.summary ?? target.caseRef.summary);
   }
-}
-
-function createNonce(): string {
-  return Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function humanMessage(error: unknown): string {

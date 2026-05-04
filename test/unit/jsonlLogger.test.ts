@@ -15,22 +15,22 @@ describe("jsonlLogger path resolution", () => {
     vi.resetModules();
   });
 
-  it("resolves relative path from workspace folder", async () => {
+  it("does not resolve relative path from workspace folder", async () => {
     const { resolveRuntimeLogPath } = await import("../../src/logging/jsonlLogger");
     expect(
       resolveRuntimeLogPath(".kiwi-logs/runtime/run.jsonl", {
         workspaceFolderFsPath: "/tmp/workspace"
       })
-    ).toBe("/tmp/workspace/.kiwi-logs/runtime/run.jsonl");
+    ).toBeUndefined();
   });
 
-  it("resolves relative path from workspace file directory", async () => {
+  it("does not resolve relative path from workspace file directory", async () => {
     const { resolveRuntimeLogPath } = await import("../../src/logging/jsonlLogger");
     expect(
       resolveRuntimeLogPath(".kiwi-logs/runtime/run.jsonl", {
         workspaceFileFsPath: "/tmp/workspace/project.code-workspace"
       })
-    ).toBe("/tmp/workspace/.kiwi-logs/runtime/run.jsonl");
+    ).toBeUndefined();
   });
 
   it("returns undefined when workspace context is unavailable", async () => {

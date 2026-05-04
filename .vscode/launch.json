@@ -5,9 +5,20 @@
       "name": "Kiwi FS: Debug F5",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "pnpm: build",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension",
+        "openai.chatgpt",
+        "--disable-extension",
+        "GitHub.copilot",
+        "--disable-extension",
+        "GitHub.copilot-chat",
+        "--disable-extension",
+        "github.copilot",
+        "--disable-extension",
+        "github.copilot-chat",
         "${workspaceFolder}"
       ],
       "env": {
@@ -19,9 +30,20 @@
       "name": "Kiwi FS: Debug F5 (growifs workspace)",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "pnpm: build",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension",
+        "openai.chatgpt",
+        "--disable-extension",
+        "GitHub.copilot",
+        "--disable-extension",
+        "GitHub.copilot-chat",
+        "--disable-extension",
+        "github.copilot",
+        "--disable-extension",
+        "github.copilot-chat",
         "${workspaceFolder}/../vscode-growifs/vscode-growifs.code-workspace"
       ],
       "env": {
@@ -33,9 +55,20 @@
       "name": "Kiwi FS: Debug F5 (No Runtime Log)",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "pnpm: build",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension",
+        "openai.chatgpt",
+        "--disable-extension",
+        "GitHub.copilot",
+        "--disable-extension",
+        "GitHub.copilot-chat",
+        "--disable-extension",
+        "github.copilot",
+        "--disable-extension",
+        "github.copilot-chat",
         "${workspaceFolder}"
       ],
       "env": {
@@ -46,9 +79,20 @@
       "name": "Kiwi FS: Debug F5 (growifs workspace, No Runtime Log)",
       "type": "extensionHost",
       "request": "launch",
+      "preLaunchTask": "pnpm: build",
       "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
+        "--disable-extension",
+        "openai.chatgpt",
+        "--disable-extension",
+        "GitHub.copilot",
+        "--disable-extension",
+        "GitHub.copilot-chat",
+        "--disable-extension",
+        "github.copilot",
+        "--disable-extension",
+        "github.copilot-chat",
         "${workspaceFolder}/../vscode-growifs/vscode-growifs.code-workspace"
       ],
       "env": {

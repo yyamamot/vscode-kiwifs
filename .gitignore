@@ -8,7 +8,10 @@ dist/
 out/
 coverage/
 .pnpm-store/
+.tmp/
 
 .DS_Store
 .vscode-test/
 *.vsix
+# kiwifs local mirror and LLM agent artifacts
+.kiwi-agent/

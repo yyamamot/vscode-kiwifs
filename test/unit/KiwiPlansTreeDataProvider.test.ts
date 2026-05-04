@@ -28,6 +28,9 @@ vi.mock("vscode", () => {
   }
 
   return {
+    l10n: {
+      t: (message: string) => message
+    },
     EventEmitter,
     TreeItem,
     ThemeIcon,
@@ -102,7 +105,7 @@ describe("KiwiPlansTreeDataProvider freshness decoration", () => {
 
     const conflictItem = await provider.getTreeItem(node);
     expect(conflictItem.description).toBe("Conflicts");
-    expect(conflictItem.tooltip).toContain("local mirror と remote の両方に変更があります。");
+    expect(conflictItem.tooltip).toContain("Both local mirror and remote have changes.");
 
     provider.clearCompareSnapshot();
 

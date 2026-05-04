@@ -4,6 +4,7 @@ import { KiwiConfig, KiwiPlan, PlanCaseRef } from "../types";
 import { planDirectoryName, caseFileName } from "../domain/pathCodec";
 import { JsonlLogger } from "../logging/jsonlLogger";
 import { KiwiError } from "../domain/errors";
+import { localize } from "./l10n";
 
 type KiwiClient = {
   adapter: KiwiAdapter;
@@ -41,7 +42,7 @@ export type CaseCompareSnapshotStatus = "LocalChanged" | "RemoteChanged" | "Conf
 
 type CaseCompareSnapshotDecoration = {
   status: CaseCompareSnapshotStatus;
-  description: "Local Changes" | "Remote Changes" | "Conflicts";
+  description: string;
   message: string;
 };
 
@@ -170,6 +171,30 @@ export class KiwiPlansTreeDataProvider
       default:
         return [];
     }
+  }
+
+  async getParent(element: KiwiPlansTreeNode): Promise<KiwiPlansTreeNode | undefined> {
+    if (element.kind === "plan") {
+      return undefined;
+    }
+    return { kind: "plan", plan: element.plan };
+  }
+
+  async findNodeForReview(target: {
+    kind: "plan" | "case";
+    planId: number;
+    caseId?: number;
+  }): Promise<KiwiPlansTreeNode | undefined> {
+    const plans = await this.listPlans();
+    const planNode = plans.find((node) => node.kind === "plan" && node.plan.id === target.planId);
+    if (!planNode || target.kind === "plan") {
+      return planNode;
+    }
+
+    const cases = await this.listCases(planNode.plan);
+    return cases.find((node) =>
+      node.kind === "case" && node.caseRef.id === target.caseId
+    );
   }
 
   async snapshot(): Promise<KiwiPlansTreeSnapshotNode[]> {
@@ -338,21 +363,21 @@ function toCompareSnapshotDecoration(
     case "LocalChanged":
       return {
         status,
-        description: "Local Changes",
-        message: "local mirror に未反映変更があります。差分を確認するか、ローカルミラーを反映してください。"
+        description: localize("Local Changes"),
+        message: localize("Local mirror has unapplied changes. Check the diff or apply the local mirror.")
       };
     case "RemoteChanged":
       return {
         status,
-        description: "Remote Changes",
-        message: "remote が更新されています。差分を確認するか、Take Remote Changes を実行してください。"
+        description: localize("Kiwi Changes"),
+        message: localize("Remote has changed. Check the diff or take remote changes.")
       };
     case "Conflict":
       return {
         status,
-        description: "Conflicts",
+        description: localize("Conflicts"),
         message:
-          "local mirror と remote の両方に変更があります。差分を確認してから、ローカルミラーを反映または Take Remote Changes を実行してください。"
+          localize("Both local mirror and remote have changes. Check the diff before applying to Kiwi or taking remote changes.")
       };
   }
 }

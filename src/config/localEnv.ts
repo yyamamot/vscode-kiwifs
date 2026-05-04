@@ -46,11 +46,6 @@ export function resolveLocalEnvPath(): string | undefined {
     }
   }
 
-  const cwdCandidate = path.join(process.cwd(), ".env");
-  if (existsSync(cwdCandidate)) {
-    return cwdCandidate;
-  }
-
   return undefined;
 }
 

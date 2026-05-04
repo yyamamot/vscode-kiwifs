@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
+  l10n: {
+    t: (message: string) => message
+  },
   Uri: {
     file: (value: string) => ({
       scheme: "file",
@@ -88,6 +91,9 @@ describe("localMirrorSourceControl", () => {
 
     expect(sourceControl.sourceControl.inputBox.visible).toBe(false);
     expect(sourceControl.sourceControl.count).toBe(3);
+    expect(groups.find((group) => group.id === "changes")?.label).toBe("Local Changes");
+    expect(groups.find((group) => group.id === "remoteChanged")?.label).toBe("Kiwi Changes");
+    expect(groups.find((group) => group.id === "conflicts")?.label).toBe("Conflicts");
     expect(groups.find((group) => group.id === "changes")?.resourceStates).toHaveLength(1);
     expect(groups.find((group) => group.id === "remoteChanged")?.resourceStates).toHaveLength(1);
     expect(groups.find((group) => group.id === "conflicts")?.resourceStates).toHaveLength(1);

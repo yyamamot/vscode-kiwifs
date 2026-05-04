@@ -11,17 +11,23 @@ type RuntimeLogResolutionContext = {
   workspaceFileFsPath?: string;
 };
 
+type JsonlLoggerOptions = {
+  forbiddenRootFsPath?: string;
+};
+
 export class JsonlLogger {
   readonly runId = randomUUID();
   private readonly enabled: boolean;
   private readonly configuredPath: string;
+  private readonly forbiddenRootFsPath: string | undefined;
   private targetPath: string | undefined;
   private sessionStarted = false;
 
-  constructor() {
+  constructor(options: JsonlLoggerOptions = {}) {
     const isDebug = process.env.KIWI_RUNTIME_MODE === "debug-f5";
     this.enabled = isDebug;
     this.configuredPath = process.env.KIWI_JSONL_PATH ?? defaultRuntimeLogPath();
+    this.forbiddenRootFsPath = options.forbiddenRootFsPath;
   }
 
   async log(
@@ -42,10 +48,16 @@ export class JsonlLogger {
 
   getResolvedRuntimeLogPath(): string | undefined {
     if (!this.targetPath) {
-      this.targetPath = resolveRuntimeLogPath(
+      const targetPath = resolveRuntimeLogPath(
         this.configuredPath,
         currentResolutionContext()
       );
+      this.targetPath =
+        targetPath &&
+        this.forbiddenRootFsPath &&
+        isPathInsideOrEqual(targetPath, this.forbiddenRootFsPath)
+          ? undefined
+          : targetPath;
     }
     return this.targetPath;
   }
@@ -112,14 +124,6 @@ export function resolveRuntimeLogPath(
     return path.join(context.runtimeRootFsPath, targetPath);
   }
 
-  if (context.workspaceFolderFsPath) {
-    return path.join(context.workspaceFolderFsPath, targetPath);
-  }
-
-  if (context.workspaceFileFsPath) {
-    return path.join(path.dirname(context.workspaceFileFsPath), targetPath);
-  }
-
   return undefined;
 }
 
@@ -159,4 +163,16 @@ function isWorkspaceResolved(): boolean {
 
 function isRuntimeRootConfigured(): boolean {
   return Boolean(process.env.KIWI_RUNTIME_ROOT?.trim());
+}
+
+function isPathInsideOrEqual(targetPath: string, rootPath: string): boolean {
+  const target = normalizeComparablePath(targetPath);
+  const root = normalizeComparablePath(rootPath);
+  const relative = path.relative(root, target);
+  return relative === "" || (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function normalizeComparablePath(value: string): string {
+  const resolved = path.resolve(value);
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }

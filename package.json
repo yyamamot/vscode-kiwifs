@@ -6,7 +6,7 @@
   "categories": [
     "Other"
   ],
-  "version": "0.0.4",
+  "version": "0.0.5",
   "license": "MIT",
   "icon": "assets/icon.png",
   "repository": {
@@ -44,7 +44,6 @@
     "onCommand:kiwi.downloadPlanToLocalMirror",
     "onCommand:kiwi.comparePlanLocalMirror",
     "onCommand:kiwi.uploadPlanLocalMirror",
-    "onCommand:kiwi.showPlanLocalMirrorStatus",
     "onCommand:kiwi.refreshCaseDocument",
     "onCommand:kiwi.checkCaseFreshness",
     "onCommand:kiwi.showCaseDiff",
@@ -65,232 +64,270 @@
     "onCommand:kiwi.compareLocalMirror",
     "onCommand:kiwi.uploadLocalMirror",
     "onCommand:kiwi.scmCompareLocalMirrorAgain",
+    "onCommand:kiwi.scmCheckRemoteLocalMirrorMetadata",
     "onCommand:kiwi.scmUploadLocalMirrorResources",
     "onCommand:kiwi.scmTakeRemoteLocalMirrorResources",
     "onCommand:kiwi.revealLocalMirror",
+    "onCommand:kiwi.installLlmSkillPack",
+    "onCommand:kiwi.startLlmEditSession",
+    "onCommand:kiwi.createLlmLocalMirrorDiffContext",
     "onCommand:kiwi.clearRuntimeLogs",
-    "onCommand:kiwi.revealRuntimeLogs"
+    "onCommand:kiwi.revealRuntimeLogs",
+    "onCommand:kiwi.showTreeItemActions",
+    "onCommand:kiwi.showPlanTreeItemActions",
+    "onCommand:kiwi.showCaseTreeItemActions"
   ],
   "contributes": {
     "commands": [
       {
         "command": "kiwi.openRoot",
-        "title": "Kiwi: ルートを開く"
+        "title": "%command.kiwi.openRoot.title%"
       },
       {
         "command": "kiwi.searchCases",
-        "title": "Kiwi: テストケースを検索",
+        "title": "%command.kiwi.searchCases.title%",
         "icon": "$(search)"
       },
       {
         "command": "kiwi.filterCases",
-        "title": "Kiwi: テストケースを探す",
+        "title": "%command.kiwi.filterCases.title%",
         "icon": "$(search)"
       },
       {
         "command": "kiwi.filterTestRuns",
-        "title": "Kiwi: テスト実行を探す",
+        "title": "%command.kiwi.filterTestRuns.title%",
         "icon": "$(search)"
       },
       {
         "command": "kiwi.openTestRunDashboard",
-        "title": "Kiwi: テスト実行を表示",
+        "title": "%command.kiwi.openTestRunDashboard.title%",
         "icon": "$(play-circle)"
       },
       {
         "command": "kiwi.configureBaseUrl",
-        "title": "Kiwi: ベース URL を設定"
+        "title": "%command.kiwi.configureBaseUrl.title%"
       },
       {
         "command": "kiwi.configureUsername",
-        "title": "Kiwi: ユーザー名を設定"
+        "title": "%command.kiwi.configureUsername.title%"
       },
       {
         "command": "kiwi.configurePassword",
-        "title": "Kiwi: パスワードを設定"
+        "title": "%command.kiwi.configurePassword.title%"
       },
       {
         "command": "kiwi.clearBaseUrl",
-        "title": "Kiwi: ベース URL を消去"
+        "title": "%command.kiwi.clearBaseUrl.title%"
       },
       {
         "command": "kiwi.clearUsername",
-        "title": "Kiwi: ユーザー名を消去"
+        "title": "%command.kiwi.clearUsername.title%"
       },
       {
         "command": "kiwi.clearPassword",
-        "title": "Kiwi: パスワードを消去"
+        "title": "%command.kiwi.clearPassword.title%"
       },
       {
         "command": "kiwi.clearConfiguration",
-        "title": "Kiwi: 設定を消去"
+        "title": "%command.kiwi.clearConfiguration.title%"
       },
       {
         "command": "kiwi.refreshPlans",
-        "title": "一覧を更新",
+        "title": "%command.kiwi.refreshPlans.title%",
         "icon": "$(refresh)"
       },
       {
         "command": "kiwi.openTreeItem",
-        "title": "開く"
+        "title": "%command.kiwi.openTreeItem.title%"
+      },
+      {
+        "command": "kiwi.showTreeItemActions",
+        "title": "%command.kiwi.showTreeItemActions.title%",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "kiwi.showPlanTreeItemActions",
+        "title": "%command.kiwi.showPlanTreeItemActions.title%",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "kiwi.showCaseTreeItemActions",
+        "title": "%command.kiwi.showCaseTreeItemActions.title%",
+        "icon": "$(list-selection)"
       },
       {
         "command": "kiwi.showPlanInfo",
-        "title": "テスト計画の情報を表示"
+        "title": "%command.kiwi.showPlanInfo.title%"
       },
       {
         "command": "kiwi.createCase",
-        "title": "テスト計画に新規テストケースを作成"
+        "title": "%command.kiwi.createCase.title%"
       },
       {
         "command": "kiwi.addExistingCaseToPlan",
-        "title": "テスト計画に既存テストケースを追加"
+        "title": "%command.kiwi.addExistingCaseToPlan.title%"
       },
       {
         "command": "kiwi.removeCaseFromPlan",
-        "title": "テストケースをこの計画から外す"
+        "title": "%command.kiwi.removeCaseFromPlan.title%"
       },
       {
         "command": "kiwi.removeCaseFromPlanFromPlan",
-        "title": "テスト計画からテストケースを外す"
+        "title": "%command.kiwi.removeCaseFromPlanFromPlan.title%"
       },
       {
         "command": "kiwi.deleteCase",
-        "title": "テストケースを削除"
+        "title": "%command.kiwi.deleteCase.title%"
       },
       {
         "command": "kiwi.downloadPlanToLocalMirror",
-        "title": "配下をローカルミラーに同期",
+        "title": "%command.kiwi.downloadPlanToLocalMirror.title%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "kiwi.comparePlanLocalMirror",
-        "title": "ローカルミラーを比較",
+        "title": "%command.kiwi.comparePlanLocalMirror.title%",
         "icon": "$(diff)"
       },
       {
         "command": "kiwi.uploadPlanLocalMirror",
-        "title": "ローカルミラーを反映",
+        "title": "%command.kiwi.uploadPlanLocalMirror.title%",
         "icon": "$(cloud-upload)"
       },
       {
-        "command": "kiwi.showPlanLocalMirrorStatus",
-        "title": "ローカルミラー状態を表示"
-      },
-      {
         "command": "kiwi.refreshCaseDocument",
-        "title": "テストケースを更新",
+        "title": "%command.kiwi.refreshCaseDocument.title%",
         "icon": "$(refresh)"
       },
       {
         "command": "kiwi.checkCaseFreshness",
-        "title": "テストケースの最新状態を確認",
+        "title": "%command.kiwi.checkCaseFreshness.title%",
         "icon": "$(sync)"
       },
       {
         "command": "kiwi.showCaseDiff",
-        "title": "テストケースの差分を表示",
+        "title": "%command.kiwi.showCaseDiff.title%",
         "icon": "$(diff)"
       },
       {
         "command": "kiwi.showCaseHistoryDiff",
-        "title": "テストケースの履歴差分を表示",
+        "title": "%command.kiwi.showCaseHistoryDiff.title%",
         "icon": "$(history)"
       },
       {
         "command": "kiwi.showCaseHistory",
-        "title": "テストケースの履歴一覧を表示",
+        "title": "%command.kiwi.showCaseHistory.title%",
         "icon": "$(list-tree)"
       },
       {
         "command": "kiwi.showCaseInfo",
-        "title": "テストケースの情報を表示"
+        "title": "%command.kiwi.showCaseInfo.title%"
       },
       {
         "command": "kiwi.editCaseMetadata",
-        "title": "テストケースのメタデータを編集"
+        "title": "%command.kiwi.editCaseMetadata.title%"
       },
       {
         "command": "kiwi.duplicateCase",
-        "title": "テストケースを複製"
+        "title": "%command.kiwi.duplicateCase.title%"
       },
       {
         "command": "kiwi.recordCaseExecutionResult",
-        "title": "テストケースの実行結果を更新"
+        "title": "%command.kiwi.recordCaseExecutionResult.title%"
       },
       {
         "command": "kiwi.manageCaseExecutionsAcrossRuns",
-        "title": "テストケースの実行を管理"
+        "title": "%command.kiwi.manageCaseExecutionsAcrossRuns.title%"
       },
       {
         "command": "kiwi.showCaseAttachments",
-        "title": "添付一覧を表示"
+        "title": "%command.kiwi.showCaseAttachments.title%"
       },
       {
         "command": "kiwi.addCaseAttachment",
-        "title": "添付を追加"
+        "title": "%command.kiwi.addCaseAttachment.title%"
       },
       {
         "command": "kiwi.openCaseAttachmentInBrowser",
-        "title": "添付をブラウザで表示"
+        "title": "%command.kiwi.openCaseAttachmentInBrowser.title%"
       },
       {
         "command": "kiwi.openCaseAttachmentInEditor",
-        "title": "添付をエディタで表示"
+        "title": "%command.kiwi.openCaseAttachmentInEditor.title%"
       },
       {
         "command": "kiwi.openInBrowser",
-        "title": "テストケースをブラウザで表示",
+        "title": "%command.kiwi.openInBrowser.title%",
         "icon": "$(globe)"
       },
       {
         "command": "kiwi.openPlanInBrowser",
-        "title": "テスト計画をブラウザで表示",
+        "title": "%command.kiwi.openPlanInBrowser.title%",
         "icon": "$(globe)"
       },
       {
         "command": "kiwi.downloadCaseToLocalMirror",
-        "title": "ローカルミラーに同期",
+        "title": "%command.kiwi.downloadCaseToLocalMirror.title%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "kiwi.compareLocalMirror",
-        "title": "ローカルミラーを比較",
+        "title": "%command.kiwi.compareLocalMirror.title%",
         "icon": "$(diff)"
       },
       {
         "command": "kiwi.uploadLocalMirror",
-        "title": "ローカルミラーを反映",
+        "title": "%command.kiwi.uploadLocalMirror.title%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "kiwi.scmCompareLocalMirrorAgain",
-        "title": "Compare Again",
+        "title": "%command.kiwi.scmCompareLocalMirrorAgain.title%",
         "icon": "$(refresh)"
       },
       {
+        "command": "kiwi.scmCheckRemoteLocalMirrorMetadata",
+        "title": "%command.kiwi.scmCheckRemoteLocalMirrorMetadata.title%",
+        "icon": "$(sync)"
+      },
+      {
         "command": "kiwi.scmUploadLocalMirrorResources",
-        "title": "Upload Local Changes",
+        "title": "%command.kiwi.scmUploadLocalMirrorResources.title%",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "kiwi.scmTakeRemoteLocalMirrorResources",
-        "title": "Take Remote Changes",
+        "title": "%command.kiwi.scmTakeRemoteLocalMirrorResources.title%",
         "icon": "$(cloud-download)"
       },
       {
         "command": "kiwi.revealLocalMirror",
-        "title": "ローカルミラーを開く",
+        "title": "%command.kiwi.revealLocalMirror.title%",
         "icon": "$(go-to-file)"
       },
       {
+        "command": "kiwi.installLlmSkillPack",
+        "title": "%command.kiwi.installLlmSkillPack.title%",
+        "icon": "$(book)"
+      },
+      {
+        "command": "kiwi.startLlmEditSession",
+        "title": "%command.kiwi.startLlmEditSession.title%",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "kiwi.createLlmLocalMirrorDiffContext",
+        "title": "%command.kiwi.createLlmLocalMirrorDiffContext.title%",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "kiwi.clearRuntimeLogs",
-        "title": "Kiwi: ランタイムログを削除",
+        "title": "%command.kiwi.clearRuntimeLogs.title%",
         "icon": "$(trash)"
       },
       {
         "command": "kiwi.revealRuntimeLogs",
-        "title": "Kiwi: ランタイムログを開く",
+        "title": "%command.kiwi.revealRuntimeLogs.title%",
         "icon": "$(folder-opened)"
       }
     ],
@@ -377,160 +414,109 @@
           "when": "false"
         },
         {
+          "command": "kiwi.scmCheckRemoteLocalMirrorMetadata",
+          "when": "false"
+        },
+        {
           "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.uploadLocalMirror",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.uploadPlanLocalMirror",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.showTreeItemActions",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.showPlanTreeItemActions",
+          "when": "false"
+        },
+        {
+          "command": "kiwi.showCaseTreeItemActions",
           "when": "false"
         }
       ],
       "view/item/context": [
         {
-          "command": "kiwi.showPlanInfo",
-          "when": "view == kiwiPlans && viewItem == plan",
-          "group": "inspect@1"
-        },
-        {
-          "command": "kiwi.showCaseInfo",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@1"
-        },
-        {
-          "command": "kiwi.editCaseMetadata",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@2"
-        },
-        {
           "command": "kiwi.openPlanInBrowser",
           "when": "view == kiwiPlans && viewItem == plan",
-          "group": "inspect@2"
+          "group": "01_open@1"
+        },
+        {
+          "command": "kiwi.showPlanTreeItemActions",
+          "when": "view == kiwiPlans && viewItem == plan",
+          "group": "02_inspect@1"
         },
         {
           "command": "kiwi.createCase",
           "when": "view == kiwiPlans && viewItem == plan",
-          "group": "inspect@3"
+          "group": "03_structureEdit@1"
         },
         {
           "command": "kiwi.addExistingCaseToPlan",
           "when": "view == kiwiPlans && viewItem == plan",
-          "group": "inspect@4"
-        },
-        {
-          "command": "kiwi.removeCaseFromPlanFromPlan",
-          "when": "view == kiwiPlans && viewItem == plan",
-          "group": "inspect@5"
+          "group": "03_structureEdit@2"
         },
         {
           "command": "kiwi.downloadPlanToLocalMirror",
           "when": "view == kiwiPlans && viewItem == plan",
-          "group": "mirror@1"
+          "group": "04_localMirror@1"
         },
         {
           "command": "kiwi.comparePlanLocalMirror",
           "when": "view == kiwiPlans && viewItem == plan",
-          "group": "mirror@2"
-        },
-        {
-          "command": "kiwi.uploadPlanLocalMirror",
-          "when": "view == kiwiPlans && viewItem == plan",
-          "group": "mirror@3"
-        },
-        {
-          "command": "kiwi.showPlanLocalMirrorStatus",
-          "when": "view == kiwiPlans && viewItem == plan",
-          "group": "mirror@4"
-        },
-        {
-          "command": "kiwi.removeCaseFromPlan",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@4"
-        },
-        {
-          "command": "kiwi.deleteCase",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@4.5"
-        },
-        {
-          "command": "kiwi.checkCaseFreshness",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@5"
-        },
-        {
-          "command": "kiwi.showCaseDiff",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@6"
-        },
-        {
-          "command": "kiwi.showCaseHistoryDiff",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@7"
-        },
-        {
-          "command": "kiwi.showCaseHistory",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@8"
-        },
-        {
-          "command": "kiwi.duplicateCase",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@3"
-        },
-        {
-          "command": "kiwi.recordCaseExecutionResult",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@9"
-        },
-        {
-          "command": "kiwi.manageCaseExecutionsAcrossRuns",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "inspect@10"
+          "group": "04_localMirror@2"
         },
         {
           "command": "kiwi.openInBrowser",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "attachments@1"
-        },
-        {
-          "command": "kiwi.addCaseAttachment",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "attachments@4"
-        },
-        {
-          "command": "kiwi.openCaseAttachmentInBrowser",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "attachments@3"
-        },
-        {
-          "command": "kiwi.openCaseAttachmentInEditor",
-          "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "attachments@2"
+          "group": "01_open@1"
         },
         {
           "command": "kiwi.refreshCaseDocument",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "sync@1"
+          "group": "02_inspect@1"
         },
         {
-          "command": "kiwi.refreshPlans",
-          "when": "view == kiwiPlans && viewItem == plan",
-          "group": "admin@1"
-        },
-        {
-          "command": "kiwi.compareLocalMirror",
+          "command": "kiwi.editCaseMetadata",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "sync@3"
+          "group": "02_inspect@2"
+        },
+        {
+          "command": "kiwi.manageCaseExecutionsAcrossRuns",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "02_inspect@3"
+        },
+        {
+          "command": "kiwi.showCaseTreeItemActions",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "02_inspect@4"
         },
         {
           "command": "kiwi.downloadCaseToLocalMirror",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "sync@2"
+          "group": "04_localMirror@1"
         },
         {
-          "command": "kiwi.uploadLocalMirror",
+          "command": "kiwi.compareLocalMirror",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "sync@4"
+          "group": "04_localMirror@2"
         },
         {
-          "command": "kiwi.revealLocalMirror",
+          "command": "kiwi.removeCaseFromPlan",
           "when": "view == kiwiPlans && viewItem == caseDocument",
-          "group": "sync@5"
+          "group": "06_danger@1"
+        },
+        {
+          "command": "kiwi.deleteCase",
+          "when": "view == kiwiPlans && viewItem == caseDocument",
+          "group": "06_danger@2"
         }
       ],
       "editor/title": [
@@ -552,14 +538,29 @@
           "group": "inline@1"
         },
         {
-          "command": "kiwi.scmUploadLocalMirrorResources",
+          "command": "kiwi.scmCheckRemoteLocalMirrorMetadata",
           "when": "scmProvider == kiwi-local-mirror-compare",
           "group": "inline@2"
         },
         {
-          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "command": "kiwi.scmUploadLocalMirrorResources",
           "when": "scmProvider == kiwi-local-mirror-compare",
           "group": "inline@3"
+        },
+        {
+          "command": "kiwi.scmTakeRemoteLocalMirrorResources",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@4"
+        },
+        {
+          "command": "kiwi.startLlmEditSession",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@5"
+        },
+        {
+          "command": "kiwi.createLlmLocalMirrorDiffContext",
+          "when": "scmProvider == kiwi-local-mirror-compare",
+          "group": "inline@6"
         }
       ],
       "scm/resourceGroup/context": [
@@ -604,22 +605,32 @@
     "format": "node -e \"console.log('format stub: no formatter configured yet')\"",
     "build": "node ./scripts/build.mjs",
     "build:test": "tsc -p tsconfig.json",
+    "dev:vscode": "node ./scripts/open-clean-vscode.mjs",
     "package:vsix": "node ./scripts/vsix.mjs package",
     "install:vsix": "node ./scripts/vsix.mjs install",
     "uninstall:vsix": "node ./scripts/vsix.mjs uninstall",
+    "review:ui:feature": "node ./scripts/review-ui-feature.mjs",
+    "review:ui:llm:scenario": "node ./scripts/review-ui-llm.mjs",
+    "verify:ui-change": "node ./scripts/verify-ui-change.mjs",
     "test:unit": "vitest run --dir test/unit",
     "test:integration": "vitest run --dir test/integration",
     "test:integration:host": "pnpm run build && pnpm run build:test && node ./out/test/integration-host/run.js",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test:unit",
-    "verify": "pnpm run build && pnpm run test:unit && pnpm run test:integration && pnpm run test:integration:host"
+    "verify": "pnpm run build && pnpm run check:l10n && pnpm run test:unit && pnpm run test:integration && pnpm run test:integration:host",
+    "check:l10n": "node ./scripts/check-l10n.mjs"
   },
   "files": [
     "dist/**",
     "assets/**",
     "README.md",
+    "README.ja.md",
     "CHANGELOG.md",
+    "CHANGELOG.ja.md",
     "LICENSE",
-    "package.json"
+    "package.json",
+    "l10n/**",
+    "package.nls.json",
+    "package.nls.ja.json"
   ],
   "devDependencies": {
     "esbuild": "^0.27.2",
@@ -636,5 +647,6 @@
   },
   "dependencies": {
     "xmlrpc": "^1.3.2"
-  }
+  },
+  "l10n": "./l10n"
 }

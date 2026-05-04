@@ -1,0 +1,28 @@
+{
+  "id": "case-filter-empty",
+  "screen": "case-filter",
+  "description": "Render the case filter empty-results state.",
+  "command": "kiwi.filterCases",
+  "formState": {
+    "query": "does-not-exist",
+    "queryTarget": "id-summary",
+    "planId": "",
+    "status": "",
+    "priority": "",
+    "tagsInput": ""
+  },
+  "expected": {
+    "hasResults": false,
+    "resultCount": 0,
+    "resultIds": [],
+    "selectedCount": 0
+  },
+  "requiredReviewIds": [
+    "shell",
+    "filter-form",
+    "message",
+    "result-list",
+    "result-rows",
+    "bulk-actions"
+  ]
+}

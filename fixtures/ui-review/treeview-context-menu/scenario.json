@@ -1,0 +1,87 @@
+{
+  "id": "treeview-context-menu",
+  "screen": "treeview-context-menu",
+  "description": "Capture Kiwi Plans TreeView plan and case context menu evidence.",
+  "uiAreas": ["explorer", "menus", "actionSurface"],
+  "target": "Kiwi Plans TreeView right-click context menu evidence",
+  "reviewFocus": [
+    "Right-click actions are target-specific.",
+    "Dangerous actions are separated or clearly labeled.",
+    "Layer 1, Layer 2, and Layer 3 evidence are enough for review."
+  ],
+  "targets": [
+    {
+      "name": "plan",
+      "kind": "plan",
+      "planId": 100
+    },
+    {
+      "name": "case",
+      "kind": "case",
+      "planId": 100,
+      "caseId": 501
+    }
+  ],
+  "evidenceLayers": [
+    {
+      "name": "Layer 1 native context menu screenshot",
+      "source": "screenshots/native-context-menu-*.png",
+      "role": "Best-effort supporting evidence for actual VS Code right-click surface",
+      "status": "supporting"
+    },
+    {
+      "name": "Layer 2 action surface Webview screenshot",
+      "source": "ui-state.json actionSurfaces and screenshots/action-surface-*.png",
+      "role": "Stable visual evidence for target-specific detailed actions",
+      "status": "stable"
+    },
+    {
+      "name": "Layer 3 deterministic menu model",
+      "source": "ui-state.json menus from package.json contributes.menus",
+      "role": "Source of truth for menu commands, when clauses, and groups",
+      "status": "source-of-truth"
+    }
+  ],
+  "nativeContextMenus": [
+    {
+      "name": "plan-shift-f10",
+      "target": "plan",
+      "setupCommands": [
+        { "id": "workbench.view.explorer", "pauseMs": 500 },
+        {
+          "id": "kiwi.__test.revealKiwiPlansTreeItem",
+          "args": [{ "kind": "plan", "planId": 100 }, { "select": true, "focus": true, "expand": 1 }],
+          "pauseMs": 800
+        }
+      ],
+      "windowFrame": {
+        "x": 120,
+        "y": 24,
+        "width": 1440,
+        "height": 1080
+      },
+      "beforeOpenPauseMs": 700,
+      "afterOpenPauseMs": 900
+    },
+    {
+      "name": "case-shift-f10",
+      "target": "case",
+      "setupCommands": [
+        { "id": "workbench.view.explorer", "pauseMs": 500 },
+        {
+          "id": "kiwi.__test.revealKiwiPlansTreeItem",
+          "args": [{ "kind": "case", "planId": 100, "caseId": 501 }, { "select": true, "focus": true, "expand": 1 }],
+          "pauseMs": 800
+        }
+      ],
+      "windowFrame": {
+        "x": 120,
+        "y": 24,
+        "width": 1440,
+        "height": 1080
+      },
+      "beforeOpenPauseMs": 700,
+      "afterOpenPauseMs": 900
+    }
+  ]
+}

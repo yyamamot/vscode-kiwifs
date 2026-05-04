@@ -117,6 +117,7 @@ export interface KiwiCaseAttachment {
   filename: string;
   size?: number;
   downloadUrl?: string;
+  contentType?: string;
 }
 
 export interface KiwiCaseAttachmentContent {

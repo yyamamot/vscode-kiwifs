@@ -13,16 +13,16 @@ export async function resolveKiwiConfig(
   context: vscode.ExtensionContext
 ): Promise<KiwiConfig> {
   const configuration = vscode.workspace.getConfiguration("kiwi");
-  const allowLocalEnvFallback = process.env.KIWI_RUNTIME_MODE === "debug-f5";
+  const allowDevelopmentEnvFallback = process.env.KIWI_RUNTIME_MODE === "debug-f5";
   const baseUrl =
     stringOrUndefined(configuration.get<string>("baseUrl")) ??
-    envValue("KIWI_BASE_URL", allowLocalEnvFallback);
+    developmentEnvValue("KIWI_BASE_URL", allowDevelopmentEnvFallback);
   const username =
     stringOrUndefined(await context.secrets.get(USERNAME_SECRET_KEY)) ??
-    envValue("KIWI_USERNAME", allowLocalEnvFallback);
+    developmentEnvValue("KIWI_USERNAME", allowDevelopmentEnvFallback);
   const password =
     stringOrUndefined(await context.secrets.get(PASSWORD_SECRET_KEY)) ??
-    envValue("KIWI_PASSWORD", allowLocalEnvFallback);
+    developmentEnvValue("KIWI_PASSWORD", allowDevelopmentEnvFallback);
 
   if (!baseUrl || !username || !password) {
     throw new KiwiError(
@@ -88,8 +88,12 @@ export async function readStoredPassword(
 
 export { normalizeBaseUrlInput, normalizeSecretInput };
 
-function envValue(name: string, allowLocalEnvFallback: boolean): string | undefined {
-  const value = process.env[name] ?? (allowLocalEnvFallback ? localEnvValue(name) : undefined);
+function developmentEnvValue(name: string, allowDevelopmentEnvFallback: boolean): string | undefined {
+  if (!allowDevelopmentEnvFallback) {
+    return undefined;
+  }
+
+  const value = process.env[name] ?? localEnvValue(name);
   return stringOrUndefined(value);
 }
 

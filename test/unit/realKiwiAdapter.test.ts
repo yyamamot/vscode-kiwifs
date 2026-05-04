@@ -6,6 +6,7 @@ import {
   RealKiwiAdapter,
   toKiwiError
 } from "../../src/adapter/realKiwiAdapter";
+import { createCredentialCacheKey } from "../../src/adapter/realKiwi/credentialCacheKey";
 import { KiwiError } from "../../src/domain/errors";
 
 describe("realKiwiAdapter", () => {
@@ -647,6 +648,43 @@ describe("realKiwiAdapter", () => {
     await adapter.getCaseHistory(config, 501);
 
     expect(sessions).toHaveLength(1);
+  });
+
+  it("does not expose the password in credential cache keys", () => {
+    const key = createCredentialCacheKey({
+      baseUrl: "https://localhost:8443",
+      username: "admin",
+      password: "super-secret-password"
+    });
+
+    expect(key).toContain("https://localhost:8443");
+    expect(key).toContain("admin");
+    expect(key).toContain("sha256:");
+    expect(key).not.toContain("super-secret-password");
+  });
+
+  it("does not reuse sessions across password changes", async () => {
+    const sessions: FakeSession[] = [];
+    const adapter = new RealKiwiAdapter(() => {
+      const session = new FakeSession({
+        "TestCase.filter": [
+          [
+            {
+              id: 501,
+              summary: "Login works",
+              text: "# Existing body\n\n1. Open page"
+            }
+          ]
+        ]
+      });
+      sessions.push(session);
+      return session;
+    });
+
+    await adapter.getCaseBody({ ...config, password: "first-password" }, 501, 100);
+    await adapter.getCaseBody({ ...config, password: "second-password" }, 501, 100);
+
+    expect(sessions).toHaveLength(2);
   });
 
   it("invalidates cached sessions after connection failures", async () => {
